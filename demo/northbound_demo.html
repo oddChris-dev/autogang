@@ -1,0 +1,2043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NORTHBOUND - Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #333;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #331100 0%, #663300 50%, #442200 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #ffcc66;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        #start-screen h1 {
+            font-size: 24px;
+            margin-bottom: 40px;
+            animation: heat 2s infinite;
+        }
+
+        @keyframes heat {
+            0%, 100% { text-shadow: 0 0 10px #ff6600; }
+            50% { text-shadow: 0 0 20px #ff9900; }
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .crt-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <div class="scanlines"></div>
+        <div class="crt-effect"></div>
+        <div id="start-screen">
+            <p style="color: #996633; font-size: 11px; margin-bottom: 20px;">[ 2,000 MILES TO GO ]</p>
+            <h1>NORTHBOUND</h1>
+            <p style="color: #cc9955; font-size: 12px; margin-top: 20px;">[ CLICK OR PRESS SPACE ]</p>
+        </div>
+    </div>
+
+    <script>
+// ============================================
+// NORTHBOUND - 8-BIT DEMO
+// ============================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+let audioCtx = null;
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+// Journey sounds - hopeful but weary
+function playBeep(freq = 440, duration = 0.1, type = 'triangle') {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.07, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playSelectBeep() {
+    playBeep(520, 0.08);
+    setTimeout(() => playBeep(650, 0.1), 80);
+}
+
+function playTextBeep() {
+    playBeep(200 + Math.random() * 80, 0.025, 'triangle');
+}
+
+function playMenuMove() {
+    playBeep(300, 0.05);
+}
+
+function playRainDrop() {
+    playBeep(800 + Math.random() * 400, 0.05, 'sine');
+}
+
+function playHopeChord() {
+    playBeep(262, 0.4, 'triangle');
+    setTimeout(() => playBeep(330, 0.4, 'triangle'), 100);
+    setTimeout(() => playBeep(392, 0.5, 'triangle'), 200);
+}
+
+// Journey music - steady traveling rhythm
+let musicPlaying = false;
+let musicInterval = null;
+
+// Mixolydian mode - hopeful but not naive
+const bassline = [98, 98, 110, 110, 82, 82, 98, 98]; // G mixolydian feel
+const melody = [294, 330, 294, 262, 294, 330, 392, 330];
+let noteIndex = 0;
+
+function startMusic() {
+    if (musicPlaying || !audioCtx) return;
+    musicPlaying = true;
+
+    musicInterval = setInterval(() => {
+        if (!musicPlaying) return;
+
+        // Steady bass - like wheels on road
+        const bassOsc = audioCtx.createOscillator();
+        const bassGain = audioCtx.createGain();
+        bassOsc.type = 'triangle';
+        bassOsc.frequency.value = bassline[noteIndex % bassline.length];
+        bassGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        bassGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+        bassOsc.connect(bassGain);
+        bassGain.connect(audioCtx.destination);
+        bassOsc.start();
+        bassOsc.stop(audioCtx.currentTime + 0.25);
+
+        // Melody - every other beat
+        if (noteIndex % 2 === 0) {
+            const melOsc = audioCtx.createOscillator();
+            const melGain = audioCtx.createGain();
+            melOsc.type = 'triangle';
+            melOsc.frequency.value = melody[(noteIndex / 2) % melody.length];
+            melGain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+            melGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            melOsc.connect(melGain);
+            melGain.connect(audioCtx.destination);
+            melOsc.start();
+            melOsc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        noteIndex++;
+    }, 280);
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicInterval) clearInterval(musicInterval);
+}
+
+// Color palettes that shift as we go north
+const COLORS_SOUTH = {
+    sky: '#cc6622',
+    skyHigh: '#662200',
+    ground: '#553311',
+    road: '#332211',
+    sun: '#ffcc00',
+    heat: '#ff6600'
+};
+
+const COLORS_MID = {
+    sky: '#446688',
+    skyHigh: '#223344',
+    ground: '#554433',
+    road: '#333333',
+    clouds: '#667788'
+};
+
+const COLORS_NORTH = {
+    sky: '#4477aa',
+    skyHigh: '#224466',
+    ground: '#446644',
+    road: '#444444',
+    clouds: '#aabbcc',
+    rain: '#99aacc'
+};
+
+const COLORS = {
+    black: '#000000',
+    darkGray: '#333333',
+    gray: '#666666',
+    lightGray: '#999999',
+    white: '#cccccc',
+    yellow: '#ccaa44',
+    orange: '#cc7733',
+    red: '#993333',
+    green: '#558844',
+    darkGreen: '#335522',
+    blue: '#446688',
+    darkBlue: '#223344',
+    brown: '#664422',
+    tan: '#aa8866'
+};
+
+// Draw school bus
+function drawSchoolBus(x, y, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = '#ccaa22';
+    ctx.fillRect(x, y + 4*s, 70*s, 28*s);
+    ctx.fillRect(x + 8*s, y, 50*s, 6*s);
+    // Windows
+    ctx.fillStyle = '#88aacc';
+    for (let i = 0; i < 5; i++) {
+        ctx.fillRect(x + 10*s + i*12*s, y + 8*s, 8*s, 14*s);
+    }
+    // Wheels
+    ctx.fillStyle = '#222222';
+    ctx.fillRect(x + 10*s, y + 32*s, 14*s, 8*s);
+    ctx.fillRect(x + 46*s, y + 32*s, 14*s, 8*s);
+}
+
+// Draw person
+function drawPerson(x, y, color = COLORS.blue, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = COLORS.tan;
+    ctx.fillRect(x + 2*s, y, 4*s, 4*s);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1*s, y + 4*s, 6*s, 8*s);
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 1*s, y + 12*s, 2*s, 4*s);
+    ctx.fillRect(x + 5*s, y + 12*s, 2*s, 4*s);
+}
+
+// Draw car (generic)
+function drawCar(x, y, color = COLORS.gray, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 4*s, y + 4*s, 32*s, 12*s);
+    ctx.fillRect(x + 10*s, y, 18*s, 6*s);
+    ctx.fillStyle = '#88aacc';
+    ctx.fillRect(x + 12*s, y + 1*s, 6*s, 4*s);
+    ctx.fillRect(x + 20*s, y + 1*s, 6*s, 4*s);
+    ctx.fillStyle = '#222222';
+    ctx.fillRect(x + 6*s, y + 16*s, 8*s, 5*s);
+    ctx.fillRect(x + 26*s, y + 16*s, 8*s, 5*s);
+}
+
+// Draw southern desert scene (Texas)
+function drawDesertScene(scrollX = 0, heatWave = true) {
+    // Harsh sky
+    ctx.fillStyle = COLORS_SOUTH.skyHigh;
+    ctx.fillRect(0, 0, 640, 100);
+    ctx.fillStyle = COLORS_SOUTH.sky;
+    ctx.fillRect(0, 100, 640, 100);
+
+    // Brutal sun
+    ctx.fillStyle = COLORS_SOUTH.sun;
+    ctx.beginPath();
+    ctx.arc(520, 80, 40, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Heat shimmer
+    if (heatWave) {
+        ctx.fillStyle = 'rgba(255, 150, 50, 0.1)';
+        for (let i = 0; i < 5; i++) {
+            const hy = 180 + Math.sin(Date.now() / 200 + i) * 5;
+            ctx.fillRect(0, hy + i * 3, 640, 3);
+        }
+    }
+
+    // Cracked ground
+    ctx.fillStyle = COLORS_SOUTH.ground;
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Cracks
+    ctx.strokeStyle = '#332200';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 8; i++) {
+        ctx.beginPath();
+        ctx.moveTo((i * 100 - scrollX * 0.2) % 800, 200);
+        ctx.lineTo((i * 100 + 30 - scrollX * 0.2) % 800, 280);
+        ctx.stroke();
+    }
+
+    // Road
+    ctx.fillStyle = COLORS_SOUTH.road;
+    ctx.fillRect(0, 300, 640, 80);
+
+    // Road lines
+    ctx.fillStyle = '#665522';
+    for (let i = -1; i < 12; i++) {
+        const lx = (i * 80 - (scrollX % 80));
+        ctx.fillRect(lx, 338, 40, 4);
+    }
+
+    // Dead vegetation
+    ctx.fillStyle = '#443322';
+    for (let i = 0; i < 6; i++) {
+        const dx = (i * 150 - scrollX * 0.3 + 900) % 900 - 100;
+        ctx.fillRect(dx, 250, 4, 30);
+        ctx.fillRect(dx - 8, 260, 8, 3);
+        ctx.fillRect(dx + 4, 265, 8, 3);
+    }
+}
+
+// Draw mid-journey scene (Oklahoma/Kansas)
+function drawPlainsScene(scrollX = 0) {
+    // Overcast sky
+    ctx.fillStyle = COLORS_MID.skyHigh;
+    ctx.fillRect(0, 0, 640, 100);
+    ctx.fillStyle = COLORS_MID.sky;
+    ctx.fillRect(0, 100, 640, 100);
+
+    // Clouds
+    ctx.fillStyle = COLORS_MID.clouds;
+    for (let i = 0; i < 4; i++) {
+        const cx = (i * 200 - scrollX * 0.1 + 800) % 800 - 50;
+        ctx.fillRect(cx, 50 + (i % 2) * 30, 100, 30);
+        ctx.fillRect(cx + 20, 35 + (i % 2) * 30, 60, 25);
+    }
+
+    // Prairie
+    ctx.fillStyle = COLORS_MID.ground;
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Grass texture
+    ctx.fillStyle = '#665544';
+    for (let i = 0; i < 30; i++) {
+        const gx = (i * 40 - scrollX * 0.4 + 1200) % 1200 - 100;
+        ctx.fillRect(gx, 220 + (i % 5) * 15, 2, 8);
+    }
+
+    // Road
+    ctx.fillStyle = COLORS_MID.road;
+    ctx.fillRect(0, 300, 640, 80);
+
+    // Road lines
+    ctx.fillStyle = '#888866';
+    for (let i = -1; i < 12; i++) {
+        const lx = (i * 80 - (scrollX % 80));
+        ctx.fillRect(lx, 338, 40, 4);
+    }
+}
+
+// Draw northern scene (Minnesota)
+function drawNorthernScene(scrollX = 0, raining = false) {
+    // Clear blue sky
+    ctx.fillStyle = COLORS_NORTH.skyHigh;
+    ctx.fillRect(0, 0, 640, 100);
+    ctx.fillStyle = COLORS_NORTH.sky;
+    ctx.fillRect(0, 100, 640, 100);
+
+    // Fluffy clouds
+    ctx.fillStyle = COLORS_NORTH.clouds;
+    for (let i = 0; i < 5; i++) {
+        const cx = (i * 180 - scrollX * 0.1 + 900) % 900 - 100;
+        ctx.beginPath();
+        ctx.arc(cx + 30, 60 + (i % 2) * 20, 25, 0, Math.PI * 2);
+        ctx.arc(cx + 55, 55 + (i % 2) * 20, 30, 0, Math.PI * 2);
+        ctx.arc(cx + 85, 60 + (i % 2) * 20, 25, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Green land!
+    ctx.fillStyle = COLORS_NORTH.ground;
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Trees
+    ctx.fillStyle = COLORS.darkGreen;
+    for (let i = 0; i < 8; i++) {
+        const tx = (i * 120 - scrollX * 0.3 + 960) % 960 - 60;
+        // Tree trunk
+        ctx.fillStyle = '#553322';
+        ctx.fillRect(tx + 12, 230, 8, 30);
+        // Foliage
+        ctx.fillStyle = COLORS.darkGreen;
+        ctx.fillRect(tx, 200, 32, 35);
+        ctx.fillRect(tx + 6, 190, 20, 15);
+    }
+
+    // Road
+    ctx.fillStyle = COLORS_NORTH.road;
+    ctx.fillRect(0, 300, 640, 80);
+
+    // Road lines
+    ctx.fillStyle = '#aaaaaa';
+    for (let i = -1; i < 12; i++) {
+        const lx = (i * 80 - (scrollX % 80));
+        ctx.fillRect(lx, 338, 40, 4);
+    }
+
+    // Rain
+    if (raining) {
+        ctx.fillStyle = COLORS_NORTH.rain;
+        for (let i = 0; i < 50; i++) {
+            const rx = (i * 47 + scrollX + Date.now() / 10) % 640;
+            const ry = (i * 31 + Date.now() / 8) % 400;
+            ctx.fillRect(rx, ry, 2, 10);
+        }
+    }
+}
+
+// Draw city ruins (Dallas)
+function drawDallasRuins(scrollX = 0) {
+    // Empty sky
+    ctx.fillStyle = '#334455';
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Abandoned skyline
+    ctx.fillStyle = '#222233';
+    const buildings = [
+        { x: 50, w: 60, h: 120 },
+        { x: 130, w: 80, h: 180 },
+        { x: 230, w: 50, h: 100 },
+        { x: 300, w: 100, h: 200 },
+        { x: 420, w: 70, h: 150 },
+        { x: 510, w: 90, h: 170 }
+    ];
+
+    buildings.forEach(b => {
+        ctx.fillStyle = '#222233';
+        ctx.fillRect(b.x - scrollX * 0.1, 200 - b.h, b.w, b.h);
+        // Dark windows - no lights
+        ctx.fillStyle = '#111122';
+        for (let wy = 210 - b.h; wy < 190; wy += 15) {
+            for (let wx = b.x + 5 - scrollX * 0.1; wx < b.x + b.w - 10 - scrollX * 0.1; wx += 12) {
+                ctx.fillRect(wx, wy, 8, 10);
+            }
+        }
+    });
+
+    // Ground
+    ctx.fillStyle = '#333344';
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Abandoned cars on street
+    ctx.fillStyle = '#333333';
+    for (let i = 0; i < 5; i++) {
+        ctx.fillRect(100 + i * 120, 320, 40, 20);
+    }
+
+    // Open doors
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(135, 315, 15, 5);
+    ctx.fillRect(255, 315, 15, 5);
+}
+
+// Draw sinkhole scene
+function drawSinkholeScene() {
+    // Ominous sky
+    ctx.fillStyle = '#223322';
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Grass that hides danger
+    ctx.fillStyle = '#334422';
+    ctx.fillRect(0, 200, 640, 280);
+
+    // The sinkhole
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(320, 320, 120, 60, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Crumbling edge
+    ctx.fillStyle = '#221100';
+    ctx.beginPath();
+    ctx.ellipse(320, 320, 140, 70, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#334422';
+    ctx.beginPath();
+    ctx.ellipse(320, 320, 120, 60, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(320, 320, 100, 50, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Vehicle in hole (the ones who didn't make it)
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(290, 330, 30, 15);
+    ctx.fillRect(320, 340, 25, 12);
+}
+
+// Draw town (Willmar)
+function drawTown() {
+    // Nice sky
+    ctx.fillStyle = '#5588bb';
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Clouds
+    ctx.fillStyle = '#aaccee';
+    ctx.beginPath();
+    ctx.arc(100, 60, 30, 0, Math.PI * 2);
+    ctx.arc(130, 50, 35, 0, Math.PI * 2);
+    ctx.arc(165, 60, 28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Buildings - alive, with lights
+    ctx.fillStyle = '#554433';
+    ctx.fillRect(80, 150, 80, 80);
+    ctx.fillStyle = '#665544';
+    ctx.fillRect(200, 130, 100, 100);
+    ctx.fillStyle = '#554444';
+    ctx.fillRect(340, 160, 70, 70);
+    ctx.fillStyle = '#445544';
+    ctx.fillRect(450, 140, 90, 90);
+
+    // Lit windows!
+    ctx.fillStyle = '#ffdd88';
+    [
+        [95, 165], [130, 165], [95, 195], [130, 195],
+        [220, 150], [260, 150], [220, 180], [260, 180],
+        [355, 175], [390, 175],
+        [470, 160], [510, 160], [470, 190], [510, 190]
+    ].forEach(([wx, wy]) => {
+        ctx.fillRect(wx, wy, 15, 12);
+    });
+
+    // Green grass
+    ctx.fillStyle = '#447744';
+    ctx.fillRect(0, 230, 640, 250);
+
+    // Road into town
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(200, 300, 240, 180);
+}
+
+// Text box
+function drawTextBox(text, speaker = null) {
+    ctx.fillStyle = 'rgba(20, 30, 25, 0.95)';
+    ctx.fillRect(20, 380, 600, 90);
+
+    ctx.strokeStyle = '#88aa88';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 380, 600, 90);
+    ctx.strokeStyle = '#557755';
+    ctx.strokeRect(24, 384, 592, 82);
+
+    if (speaker) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(30, 372, speaker.length * 10 + 20, 16);
+        ctx.fillStyle = '#88cc88';
+        ctx.font = '14px monospace';
+        ctx.fillText(speaker, 40, 385);
+    }
+
+    ctx.fillStyle = '#ccddcc';
+    ctx.font = '14px monospace';
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+        ctx.fillText(line, 40, 410 + i * 20);
+    });
+}
+
+// Menu
+function drawMenu(options, selectedIndex, title = null) {
+    const menuWidth = 360;
+    const menuHeight = options.length * 30 + 40;
+    const menuX = (640 - menuWidth) / 2;
+    const menuY = (480 - menuHeight) / 2;
+
+    ctx.fillStyle = 'rgba(15, 25, 20, 0.95)';
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+
+    ctx.strokeStyle = '#88aa88';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+
+    if (title) {
+        ctx.fillStyle = '#88cc88';
+        ctx.font = '14px monospace';
+        ctx.fillText(title, menuX + 20, menuY + 25);
+    }
+
+    options.forEach((opt, i) => {
+        const optY = menuY + 50 + i * 30;
+        if (i === selectedIndex) {
+            ctx.fillStyle = '#88cc88';
+            ctx.fillText('>', menuX + 20, optY);
+            ctx.fillStyle = '#ccddcc';
+        } else {
+            ctx.fillStyle = '#667766';
+        }
+        ctx.font = '14px monospace';
+        ctx.fillText(opt, menuX + 40, optY);
+    });
+}
+
+// Mileage counter
+function drawMileage(miles, total = 2000) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(10, 10, 150, 30);
+    ctx.strokeStyle = '#557755';
+    ctx.strokeRect(10, 10, 150, 30);
+
+    ctx.fillStyle = '#88aa88';
+    ctx.font = '12px monospace';
+    ctx.fillText(`MILE ${miles} / ${total}`, 25, 30);
+
+    // Progress bar
+    ctx.fillStyle = '#333';
+    ctx.fillRect(170, 15, 100, 20);
+    ctx.fillStyle = '#5a5';
+    ctx.fillRect(170, 15, (miles / total) * 100, 20);
+}
+
+// Scenes
+const scenes = [
+    // TITLE
+    {
+        type: 'title',
+        duration: 5000,
+        draw: (progress) => {
+            // Heat gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 480);
+            gradient.addColorStop(0, '#662200');
+            gradient.addColorStop(0.5, '#cc4400');
+            gradient.addColorStop(1, '#331100');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Sun
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(320, 400 - progress * 50, 60, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Heat waves
+            ctx.strokeStyle = 'rgba(255, 200, 100, 0.3)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, 300 + i * 20);
+                for (let x = 0; x < 640; x += 20) {
+                    ctx.lineTo(x, 300 + i * 20 + Math.sin(x * 0.05 + progress * 10 + i) * 5);
+                }
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = '#ffcc66';
+            ctx.font = '48px monospace';
+            ctx.fillText('NORTHBOUND', 140, 180);
+
+            ctx.fillStyle = '#cc9944';
+            ctx.font = '14px monospace';
+            ctx.fillText('2,000 miles to salvation', 220, 230);
+
+            if (progress > 0.5) {
+                ctx.fillStyle = '#996633';
+                ctx.font = '12px monospace';
+                ctx.fillText('LAREDO, TEXAS - THE LAST SUMMER', 200, 350);
+            }
+        }
+    },
+
+    // INTRO - THE HEAT
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'The heat came first. Then the crops died.\nThen the aquifers went dry.\nSouth Texas became unlivable in a single summer.',
+        draw: (progress, scrollX) => {
+            drawDesertScene(scrollX, true);
+
+            // Dead crops
+            ctx.fillStyle = '#443322';
+            for (let i = 0; i < 10; i++) {
+                ctx.fillRect(100 + i * 50, 240, 3, 20);
+            }
+
+            // Cracked earth detail
+            ctx.strokeStyle = '#221100';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(200, 250);
+            ctx.lineTo(220, 280);
+            ctx.lineTo(200, 290);
+            ctx.stroke();
+        }
+    },
+
+    // MARIA SANTOS
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Maria Santos was a high school principal.\nWhen the last water truck did not come,\nshe took the school\'s two buses.',
+        draw: (progress) => {
+            // School
+            ctx.fillStyle = '#553322';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // School building
+            ctx.fillStyle = '#664433';
+            ctx.fillRect(150, 100, 340, 180);
+
+            // SCHOOL text
+            ctx.fillStyle = '#443322';
+            ctx.font = '20px monospace';
+            ctx.fillText('LAREDO HIGH', 250, 80);
+
+            // Empty water tower
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(500, 50, 40, 80);
+            ctx.fillRect(490, 130, 60, 20);
+            ctx.fillStyle = '#994444';
+            ctx.font = '10px monospace';
+            ctx.fillText('EMPTY', 495, 100);
+
+            // Buses in parking lot
+            drawSchoolBus(180, 300, 1.2);
+            drawSchoolBus(350, 305, 1.2);
+
+            // Maria
+            drawPerson(300, 280, '#884466', 2);
+        }
+    },
+
+    // LOADING UP
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'MARIA',
+        text: '"Anyone who wants to come, get on the bus.\nWe are going north. Canada maybe.\nAnywhere there is still water."',
+        draw: (progress) => {
+            drawDesertScene(0, true);
+
+            // Buses loading
+            drawSchoolBus(150, 290, 1.5);
+            drawSchoolBus(380, 295, 1.5);
+
+            // Line of people
+            for (let i = 0; i < 8; i++) {
+                drawPerson(100 + i * 30, 320 + (i % 2) * 5, ['#884466', '#446688', '#668844', '#886644', '#448866', '#664488', '#888844', '#448888'][i], 1.5);
+            }
+
+            // Belongings
+            ctx.fillStyle = '#665544';
+            ctx.fillRect(90, 350, 20, 15);
+            ctx.fillRect(150, 345, 15, 12);
+            ctx.fillRect(200, 350, 25, 15);
+        }
+    },
+
+    // THE CONVOY
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ THE CONVOY ]',
+        options: [
+            'Bus One: 26 passengers - families',
+            'Bus Two: 18 passengers + supplies',
+            'Scout car: Maria\'s Honda Civic',
+            'Driver: Hector - 15 years keeping buses alive'
+        ],
+        autoSelect: 3,
+        draw: (progress) => {
+            ctx.fillStyle = '#221100';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Buses in formation
+            drawSchoolBus(80, 150, 1);
+            drawSchoolBus(80, 220, 1);
+            drawCar(200, 180, '#666688', 1);
+
+            drawMileage(0);
+        }
+    },
+
+    // INTERSTATE GRAVEYARD
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Interstate 35 was a corridor of the dead.\nThousands had the same idea months earlier.\nThe children were told not to look out the windows.',
+        draw: (progress, scrollX) => {
+            drawDesertScene(scrollX, true);
+
+            // Abandoned cars everywhere
+            ctx.fillStyle = '#333333';
+            for (let i = 0; i < 8; i++) {
+                const cx = (i * 100 - scrollX * 0.5 + 800) % 800;
+                ctx.fillRect(cx, 290 + (i % 3) * 20, 35, 18);
+                // Open doors, abandoned
+                if (i % 2 === 0) {
+                    ctx.fillRect(cx + 30, 285 + (i % 3) * 20, 12, 5);
+                }
+            }
+
+            // Convoy moving through
+            drawSchoolBus(250, 310, 1.2);
+
+            drawMileage(50);
+        }
+    },
+
+    // GARRETT THE GEOLOGIST
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Outside San Antonio, fuel crisis.\nA man named Garrett knew where underground tanks\nstill held diesel. He used to build them.',
+        draw: (progress) => {
+            drawDesertScene(0, false);
+
+            // Gas station
+            ctx.fillStyle = '#444444';
+            ctx.fillRect(200, 240, 200, 60);
+
+            // Pumps (dry)
+            ctx.fillStyle = '#666666';
+            ctx.fillRect(250, 300, 20, 40);
+            ctx.fillRect(330, 300, 20, 40);
+
+            // Garrett with hand pump
+            drawPerson(300, 320, '#668866', 2);
+
+            // Fuel flowing
+            ctx.fillStyle = '#886633';
+            ctx.fillRect(310, 340, 4, 20);
+
+            // Buses waiting
+            drawSchoolBus(420, 300, 1);
+
+            drawMileage(200);
+        }
+    },
+
+    // GARRETT'S GUILT
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'GARRETT',
+        text: '"I helped build the systems that are now\neveryone\'s tombs. The pipelines. The aquifers.\nMaybe I can help undo some of it."',
+        draw: (progress) => {
+            ctx.fillStyle = '#221100';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Close on Garrett
+            ctx.fillStyle = '#996644';
+            ctx.fillRect(250, 150, 140, 140);
+
+            // Eyes - haunted
+            ctx.fillStyle = '#222222';
+            ctx.fillRect(280, 200, 25, 12);
+            ctx.fillRect(335, 200, 25, 12);
+
+            // Wrinkles / age lines
+            ctx.strokeStyle = '#774422';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(270, 220);
+            ctx.lineTo(290, 225);
+            ctx.moveTo(350, 220);
+            ctx.lineTo(370, 225);
+            ctx.stroke();
+        }
+    },
+
+    // DR. SIMONE ADLER
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Outside Austin, they found a woman walking alone.\nDr. Simone Adler. Climate scientist.\nShe had data. Models. Predictions.',
+        draw: (progress, scrollX) => {
+            drawDesertScene(scrollX, true);
+
+            // Simone walking
+            drawPerson(300, 300, '#aa6688', 2);
+
+            // Backpack
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(310, 310, 15, 20);
+
+            // Bus approaching
+            drawSchoolBus(100, 310, 1.2);
+
+            drawMileage(280);
+        }
+    },
+
+    // THE HARD TRUTH
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'DR. ADLER',
+        text: '"The habitability line is moving north.\nFifty miles per year. Even Canada is temporary.\nWe are not running to safety.\nWe are running to time."',
+        draw: (progress) => {
+            ctx.fillStyle = '#111122';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Map of North America
+            ctx.strokeStyle = '#446644';
+            ctx.lineWidth = 2;
+            // Simplified continent outline
+            ctx.beginPath();
+            ctx.moveTo(150, 100);
+            ctx.lineTo(500, 100);
+            ctx.lineTo(520, 200);
+            ctx.lineTo(480, 350);
+            ctx.lineTo(200, 380);
+            ctx.lineTo(120, 250);
+            ctx.closePath();
+            ctx.stroke();
+
+            // Red zone expanding
+            ctx.fillStyle = 'rgba(150, 50, 50, 0.5)';
+            ctx.fillRect(120, 300 - progress * 50, 400, 100 + progress * 50);
+
+            // "50 MI/YEAR" indicator
+            ctx.fillStyle = '#cc6666';
+            ctx.font = '12px monospace';
+            ctx.fillText('UNINHABITABLE', 250, 380);
+
+            ctx.fillStyle = '#66aa66';
+            ctx.fillText('HABITABLE (FOR NOW)', 250, 200);
+
+            // Arrow moving north
+            ctx.strokeStyle = '#ffcc00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(320, 350 - progress * 50);
+            ctx.lineTo(320, 300 - progress * 50);
+            ctx.lineTo(310, 310 - progress * 50);
+            ctx.moveTo(320, 300 - progress * 50);
+            ctx.lineTo(330, 310 - progress * 50);
+            ctx.stroke();
+        }
+    },
+
+    // MARIA DECIDES
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ SHARE THE TRUTH? ]',
+        options: [
+            '  Keep it private - protect morale',
+            '> Tell everyone - they deserve to know'
+        ],
+        autoSelect: 1,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = '#111111';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Night campfire scene
+            ctx.fillStyle = '#ff6633';
+            ctx.fillRect(300, 320, 40, 30);
+            ctx.fillStyle = '#ffaa33';
+            ctx.fillRect(308, 300, 24, 25);
+
+            // People around fire
+            for (let i = 0; i < 6; i++) {
+                const angle = i * Math.PI / 3;
+                const px = 320 + Math.cos(angle) * 80;
+                const py = 320 + Math.sin(angle) * 50;
+                drawPerson(px, py - 20, '#666666', 1.5);
+            }
+        }
+    },
+
+    // MARIA'S SPEECH
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'MARIA',
+        text: '"We are not running to safety. There is no safety.\nWe are running to time. More years in a livable place.\nThat is what we are looking for. That is worth finding."',
+        draw: (progress) => {
+            ctx.fillStyle = '#111122';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Maria standing, addressing group
+            drawPerson(300, 200, '#884466', 3);
+
+            // Crowd silhouettes
+            ctx.fillStyle = '#222233';
+            for (let i = 0; i < 12; i++) {
+                ctx.fillRect(100 + i * 40, 350, 25, 50);
+            }
+
+            // Campfire glow
+            ctx.fillStyle = 'rgba(255, 150, 80, 0.2)';
+            ctx.beginPath();
+            ctx.arc(320, 400, 150, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    },
+
+    // SOME LEAVE
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'Some people took it hard.\nA family left, heading east toward relatives.\nThe rest stayed. Something shifted.',
+        draw: (progress, scrollX) => {
+            drawDesertScene(scrollX, false);
+
+            // Main convoy
+            drawSchoolBus(200, 310, 1.2);
+            drawSchoolBus(350, 315, 1.2);
+
+            // One car leaving other direction
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(500 + progress * 100, 300, 35, 18);
+
+            drawMileage(350);
+        }
+    },
+
+    // DALLAS
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Dallas was a ruin. Not destroyed - just empty.\nA city of millions, abandoned over months.\nShopping carts in the middle of streets.',
+        draw: (progress, scrollX) => {
+            drawDallasRuins(scrollX);
+
+            // Convoy moving through slowly
+            drawSchoolBus(200 + scrollX * 0.1, 340, 1);
+            drawSchoolBus(320 + scrollX * 0.1, 345, 1);
+
+            // Graffiti
+            ctx.fillStyle = '#886644';
+            ctx.font = '10px monospace';
+            ctx.fillText('THEY NEVER CAME', 350, 250);
+
+            drawMileage(550);
+        }
+    },
+
+    // PATRICIA VANCE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'PATRICIA VANCE',
+        text: '"I kept two hundred people alive here.\nSome want to leave, to try for the north.\nTake them. I cannot spare supplies."',
+        draw: (progress) => {
+            // Strip mall settlement
+            ctx.fillStyle = '#333344';
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = '#444455';
+            ctx.fillRect(100, 180, 440, 120);
+
+            // Signs of habitation
+            ctx.fillStyle = '#ffdd88';
+            ctx.fillRect(150, 220, 20, 20);
+            ctx.fillRect(250, 210, 25, 25);
+            ctx.fillRect(400, 220, 20, 20);
+
+            // Rain barrels
+            ctx.fillStyle = '#446688';
+            ctx.fillRect(120, 300, 25, 40);
+            ctx.fillRect(500, 300, 25, 40);
+
+            // Patricia
+            drawPerson(300, 280, '#666688', 2.5);
+
+            // Her son David in background
+            drawPerson(450, 290, '#668866', 2);
+
+            drawMileage(580);
+        }
+    },
+
+    // DAVID LEAVES
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Patricia\'s son David joined the convoy.\nThe goodbye was brief and brutal.\nHe would carry it for years.',
+        draw: (progress) => {
+            ctx.fillStyle = '#333344';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Patricia watching
+            drawPerson(200, 280, '#666688', 2.5);
+
+            // David walking to bus
+            drawPerson(350 + progress * 50, 300, '#668866', 2);
+
+            // Bus waiting
+            drawSchoolBus(450, 310, 1.2);
+
+            // Space between them growing
+            ctx.strokeStyle = '#444466';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(230, 310);
+            ctx.lineTo(350 + progress * 50, 310);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    },
+
+    // THE HOSTILE TOWN
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'The Oklahoma town was as bad as advertised.\nThey approached with white flags.\nThe response was gunfire over their heads.',
+        draw: (progress) => {
+            drawPlainsScene(0);
+
+            // Town in distance with muzzle flashes
+            ctx.fillStyle = '#443333';
+            ctx.fillRect(400, 220, 150, 80);
+
+            if (Math.random() > 0.7) {
+                ctx.fillStyle = '#ffff00';
+                ctx.fillRect(420, 240, 10, 10);
+            }
+
+            // Convoy turning back
+            drawSchoolBus(150, 310, 1.2);
+
+            // White flag
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(200, 290, 5, 30);
+            ctx.fillRect(205, 290, 20, 15);
+
+            drawMileage(750);
+        }
+    },
+
+    // THE RAIN
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'NARRATOR',
+        text: 'In southern Kansas, the weather changed.\n\nRain. Real rain.',
+        draw: (progress) => {
+            // Transition from brown to green
+            const t = progress;
+
+            // Sky darkening with clouds
+            ctx.fillStyle = `rgb(${80 - t * 30}, ${100 - t * 20}, ${120 + t * 30})`;
+            ctx.fillRect(0, 0, 640, 200);
+
+            // Rain clouds
+            ctx.fillStyle = '#667788';
+            ctx.fillRect(0, 50, 640, 80);
+
+            // Ground getting greener
+            ctx.fillStyle = `rgb(${80 - t * 20}, ${70 + t * 40}, ${50})`;
+            ctx.fillRect(0, 200, 640, 280);
+
+            // Rain!
+            ctx.fillStyle = '#aabbcc';
+            for (let i = 0; i < 100; i++) {
+                const rx = (i * 23 + Date.now() / 5) % 640;
+                const ry = (i * 17 + Date.now() / 3) % 400;
+                ctx.fillRect(rx, ry, 2, 12);
+            }
+
+            // Buses stopped
+            drawSchoolBus(200, 300, 1.2);
+            drawSchoolBus(350, 305, 1.2);
+
+            // People outside in rain, arms up
+            for (let i = 0; i < 6; i++) {
+                const px = 250 + i * 30;
+                drawPerson(px, 340, '#666688', 1.5);
+                // Arms up (celebration)
+                ctx.fillStyle = '#666688';
+                ctx.fillRect(px, 340, 3, -15);
+                ctx.fillRect(px + 8, 340, 3, -15);
+            }
+
+            if (progress > 0.3) {
+                playRainDrop();
+            }
+
+            drawMileage(900);
+        }
+    },
+
+    // CRYING IN RAIN
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'People cried. The children danced in it.\nHector let the buses sit while they filled\nevery container they had.',
+        draw: (progress) => {
+            // Rain scene
+            ctx.fillStyle = '#334455';
+            ctx.fillRect(0, 0, 640, 200);
+            ctx.fillStyle = '#446655';
+            ctx.fillRect(0, 200, 640, 280);
+
+            // Heavy rain
+            ctx.fillStyle = '#99aacc';
+            for (let i = 0; i < 150; i++) {
+                const rx = (i * 19 + Date.now() / 4) % 640;
+                const ry = (i * 13 + Date.now() / 2) % 450;
+                ctx.fillRect(rx, ry, 2, 15);
+            }
+
+            // Containers being filled
+            ctx.fillStyle = '#4466aa';
+            ctx.fillRect(300, 320, 30, 40);
+            ctx.fillRect(350, 325, 25, 35);
+            ctx.fillRect(400, 320, 30, 40);
+
+            // Water level rising in containers
+            ctx.fillStyle = '#88aacc';
+            const level = progress * 30;
+            ctx.fillRect(302, 358 - level, 26, level);
+            ctx.fillRect(352, 358 - level, 21, level);
+            ctx.fillRect(402, 358 - level, 26, level);
+
+            // Children dancing
+            for (let i = 0; i < 4; i++) {
+                const bounce = Math.sin(Date.now() / 100 + i) * 5;
+                drawPerson(180 + i * 25, 330 + bounce, '#aa88aa', 1);
+            }
+
+            drawMileage(920);
+        }
+    },
+
+    // THE COLLAPSED BRIDGE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'The bridge in Kansas was collapsed.\nThe "ferry" charged tribute: fuel, food, or people.\nThey would take workers for a week.',
+        draw: (progress) => {
+            drawPlainsScene(0);
+
+            // River
+            ctx.fillStyle = '#446677';
+            ctx.fillRect(280, 200, 80, 180);
+
+            // Collapsed bridge
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(200, 280, 80, 15);
+            ctx.fillRect(360, 285, 80, 15);
+            // Broken middle
+            ctx.fillStyle = '#446677';
+            ctx.fillRect(280, 275, 80, 25);
+            // Debris in water
+            ctx.fillStyle = '#444444';
+            ctx.fillRect(290, 300, 20, 10);
+            ctx.fillRect(320, 320, 25, 8);
+
+            // Ferry operators
+            drawPerson(450, 280, '#884444', 2);
+            drawPerson(480, 280, '#884444', 2);
+
+            // Barge
+            ctx.fillStyle = '#665544';
+            ctx.fillRect(350, 340, 100, 30);
+
+            drawMileage(1100);
+        }
+    },
+
+    // REFUSE TO TRADE
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ FERRY DEMANDS PAYMENT ]',
+        options: [
+            '  Pay in supplies',
+            '  Trade workers for a week',
+            '> Find another crossing'
+        ],
+        autoSelect: 2,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = '#222222';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Tense standoff
+            drawSchoolBus(100, 300, 1);
+
+            // Ferry people
+            drawPerson(400, 290, '#884444', 2);
+
+            // River between
+            ctx.fillStyle = '#335566';
+            ctx.fillRect(280, 250, 60, 150);
+        }
+    },
+
+    // GARRETT'S KNOWLEDGE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'GARRETT',
+        text: '"I know rivers. Pipeline crossings.\nUpstream - there might be a railroad bridge.\nBuilt for weight. It could hold."',
+        draw: (progress) => {
+            ctx.fillStyle = '#223322';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Hand-drawn map
+            ctx.strokeStyle = '#88aa88';
+            ctx.lineWidth = 2;
+
+            // River
+            ctx.beginPath();
+            ctx.moveTo(320, 450);
+            ctx.bezierCurveTo(350, 350, 280, 250, 320, 100);
+            ctx.stroke();
+
+            // Main bridge (X'd out)
+            ctx.strokeStyle = '#aa4444';
+            ctx.beginPath();
+            ctx.moveTo(280, 300);
+            ctx.lineTo(360, 300);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(300, 290);
+            ctx.lineTo(340, 310);
+            ctx.moveTo(340, 290);
+            ctx.lineTo(300, 310);
+            ctx.stroke();
+
+            // Railroad bridge upstream
+            ctx.strokeStyle = '#88cc88';
+            ctx.beginPath();
+            ctx.moveTo(280, 180);
+            ctx.lineTo(360, 180);
+            ctx.stroke();
+            ctx.fillStyle = '#88cc88';
+            ctx.fillText('RAIL BRIDGE?', 370, 185);
+
+            // Garrett pointing
+            drawPerson(150, 300, '#668866', 2);
+            ctx.fillStyle = '#668866';
+            ctx.fillRect(170, 300, 40, 4);
+        }
+    },
+
+    // THE CROSSING
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'They unloaded everything. People walked supplies\nacross by hand. Hector drove Bus One\nat two miles per hour, alone, ready to jump.',
+        draw: (progress) => {
+            // River scene with railroad bridge
+            ctx.fillStyle = '#445566';
+            ctx.fillRect(0, 0, 640, 200);
+            ctx.fillStyle = '#446655';
+            ctx.fillRect(0, 200, 640, 80);
+            ctx.fillStyle = '#335566';
+            ctx.fillRect(0, 280, 640, 80);
+            ctx.fillStyle = '#446655';
+            ctx.fillRect(0, 360, 640, 120);
+
+            // Railroad bridge
+            ctx.fillStyle = '#554433';
+            ctx.fillRect(0, 260, 640, 20);
+            // Rails
+            ctx.fillStyle = '#666666';
+            ctx.fillRect(0, 262, 640, 4);
+            ctx.fillRect(0, 274, 640, 4);
+            // Ties
+            for (let i = 0; i < 40; i++) {
+                ctx.fillStyle = '#443322';
+                ctx.fillRect(i * 20, 260, 8, 20);
+            }
+
+            // Bus crossing SLOWLY
+            const busX = 50 + progress * 400;
+            drawSchoolBus(busX, 228, 1);
+
+            // People carrying supplies on other side
+            if (progress > 0.5) {
+                for (let i = 0; i < 5; i++) {
+                    drawPerson(450 + i * 30, 370, '#666688', 1.5);
+                    ctx.fillStyle = '#665544';
+                    ctx.fillRect(455 + i * 30, 380, 12, 8);
+                }
+            }
+
+            drawMileage(1150);
+        }
+    },
+
+    // IT HOLDS
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'It held.\n\nThe ferry operators watched from downstream.\nThey did not interfere.',
+        draw: (progress) => {
+            // Both buses across
+            ctx.fillStyle = '#446655';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // River behind them
+            ctx.fillStyle = '#335566';
+            ctx.fillRect(0, 350, 640, 50);
+
+            // Both buses safe
+            drawSchoolBus(150, 280, 1.3);
+            drawSchoolBus(320, 285, 1.3);
+
+            // People cheering
+            for (let i = 0; i < 8; i++) {
+                drawPerson(100 + i * 50, 340, '#668866', 1.5);
+            }
+
+            // Distant ferry
+            ctx.fillStyle = '#443333';
+            ctx.fillRect(500, 360, 40, 15);
+
+            drawMileage(1200);
+        }
+    },
+
+    // NEBRASKA WARNING
+    {
+        type: 'transition',
+        duration: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = '#111100';
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = '#aaaa44';
+            ctx.font = '16px monospace';
+            ctx.fillText('NEBRASKA', 270, 220);
+
+            ctx.fillStyle = '#886644';
+            ctx.font = '12px monospace';
+            ctx.fillText('Where convoys vanish.', 250, 260);
+            ctx.fillText('No one knows why.', 265, 285);
+
+            drawMileage(1400);
+        }
+    },
+
+    // THE SINKHOLES
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'They found out why convoys vanish.\nNot raiders. The land itself.\nSinkholes - massive, hidden by grass.',
+        draw: (progress) => {
+            drawSinkholeScene();
+
+            // Convoy stopped at edge
+            drawSchoolBus(80, 250, 1);
+
+            // People looking
+            drawPerson(200, 280, '#884466', 2);
+            drawPerson(230, 280, '#668866', 2);
+            drawPerson(260, 280, '#446688', 2);
+
+            drawMileage(1450);
+        }
+    },
+
+    // THE LOST CONVOY
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'A convoy that fell before them.\nThree vehicles in a pit forty feet deep.\nPeople still inside who starved\nwaiting for rescue that never came.',
+        draw: (progress) => {
+            // Looking down into sinkhole
+            ctx.fillStyle = '#223311';
+            ctx.fillRect(0, 0, 640, 150);
+
+            // Hole
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.ellipse(320, 350, 200, 120, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Crumbling edges
+            ctx.fillStyle = '#332211';
+            ctx.beginPath();
+            ctx.ellipse(320, 350, 220, 130, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.ellipse(320, 350, 180, 100, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Vehicles at bottom (small, far down)
+            ctx.fillStyle = '#333333';
+            ctx.fillRect(280, 380, 25, 12);
+            ctx.fillRect(310, 385, 30, 10);
+            ctx.fillRect(350, 382, 22, 11);
+
+            // Looking down (viewer perspective)
+            ctx.fillStyle = '#223311';
+            ctx.fillRect(0, 0, 640, 100);
+        }
+    },
+
+    // SLOW CROSSING
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Alejandro scouted on foot, throwing rocks,\nmapping safe passage. It took a week\nto cross thirty miles.',
+        draw: (progress) => {
+            // Top-down map view
+            ctx.fillStyle = '#334422';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Sinkholes (danger zones)
+            ctx.fillStyle = '#221100';
+            const holes = [
+                [150, 150, 40], [300, 100, 60], [450, 180, 50],
+                [200, 300, 55], [400, 350, 45], [100, 400, 35],
+                [500, 280, 40], [350, 420, 50]
+            ];
+            holes.forEach(([hx, hy, hr]) => {
+                ctx.beginPath();
+                ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Safe path (dotted)
+            ctx.strokeStyle = '#88aa88';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 5]);
+            ctx.beginPath();
+            ctx.moveTo(50, 450);
+            ctx.bezierCurveTo(100, 350, 250, 380, 280, 250);
+            ctx.bezierCurveTo(310, 150, 380, 200, 450, 100);
+            ctx.bezierCurveTo(500, 50, 550, 80, 600, 50);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Scout ahead
+            ctx.fillStyle = '#ffcc44';
+            const scoutPos = progress;
+            ctx.beginPath();
+            ctx.arc(50 + scoutPos * 550, 450 - scoutPos * 400, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Convoy behind
+            ctx.fillStyle = '#ccaa22';
+            ctx.fillRect(30 + scoutPos * 400, 460 - scoutPos * 300, 30, 15);
+
+            drawMileage(1480);
+        }
+    },
+
+    // MINNESOTA
+    {
+        type: 'transition',
+        duration: 3000,
+        draw: (progress) => {
+            // Color shift - hope
+            ctx.fillStyle = '#224422';
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = '#88cc88';
+            ctx.font = '20px monospace';
+            ctx.fillText('MINNESOTA BORDER', 210, 220);
+
+            ctx.fillStyle = '#aaddaa';
+            ctx.font = '14px monospace';
+            ctx.fillText('Early fall. First frost coming.', 220, 270);
+            ctx.fillText('Cold means water stays.', 235, 295);
+
+            if (progress > 0.5) {
+                playHopeChord();
+            }
+
+            drawMileage(1850);
+        }
+    },
+
+    // WILLMAR
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'They found Willmar, Minnesota.\nEight hundred people, actively recruiting.\nNot just accepting refugees. Looking for them.',
+        draw: (progress) => {
+            drawTown();
+
+            // Welcome sign
+            ctx.fillStyle = '#446644';
+            ctx.fillRect(80, 350, 120, 60);
+            ctx.fillStyle = '#ccddcc';
+            ctx.font = '12px monospace';
+            ctx.fillText('WELCOME TO', 100, 375);
+            ctx.fillText('WILLMAR', 110, 395);
+
+            // Convoy arriving
+            drawSchoolBus(400, 360, 1);
+            drawSchoolBus(500, 365, 1);
+
+            // People coming out to greet
+            for (let i = 0; i < 4; i++) {
+                drawPerson(300 + i * 25, 380, '#668866', 1.5);
+            }
+
+            drawMileage(1980);
+        }
+    },
+
+    // THE OFFER
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'TOWN COUNCIL',
+        text: '"We need farmers, teachers, anyone who can work.\nWe have housing. An abandoned neighborhood.\nJoin us. Not as refugees. As neighbors."',
+        draw: (progress) => {
+            // Town meeting
+            ctx.fillStyle = '#334433';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Town council table
+            ctx.fillStyle = '#554433';
+            ctx.fillRect(200, 150, 240, 30);
+
+            // Council members
+            for (let i = 0; i < 4; i++) {
+                drawPerson(220 + i * 60, 120, '#557755', 2);
+            }
+
+            // Maria's group
+            for (let i = 0; i < 6; i++) {
+                drawPerson(180 + i * 50, 300, ['#884466', '#668866', '#aa6688', '#446688', '#668844', '#886644'][i], 2);
+            }
+
+            // Table between (negotiation)
+            ctx.fillStyle = '#443322';
+            ctx.fillRect(200, 250, 240, 20);
+        }
+    },
+
+    // MARIA NEGOTIATES
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'MARIA',
+        text: '"My people stay together. We keep our buses.\nWe are not absorbed. We are allied.\nThose are my terms."',
+        draw: (progress) => {
+            ctx.fillStyle = '#223322';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Maria close-up
+            ctx.fillStyle = '#996666';
+            ctx.fillRect(250, 150, 140, 140);
+
+            // Eyes - strong
+            ctx.fillStyle = '#222222';
+            ctx.fillRect(280, 200, 25, 15);
+            ctx.fillRect(335, 200, 25, 15);
+
+            // Firm expression
+            ctx.fillStyle = '#884455';
+            ctx.fillRect(295, 250, 50, 8);
+        }
+    },
+
+    // AGREEMENT
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'They agreed.\n\nTwo thousand miles. One summer.\nFifty-three people arrived. Fifty-one survived.',
+        draw: (progress) => {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = '#88aa88';
+            ctx.font = '16px monospace';
+            ctx.fillText('DISTANCE: 2,000 MILES', 220, 200);
+            ctx.fillText('TIME: ONE SUMMER', 245, 230);
+            ctx.fillText('DEPARTED: 53', 270, 270);
+            ctx.fillText('ARRIVED: 51', 275, 300);
+
+            // Two candles for the lost
+            ctx.fillStyle = '#ffcc66';
+            ctx.fillRect(290, 350, 8, 30);
+            ctx.fillRect(342, 350, 8, 30);
+            ctx.fillStyle = '#ffaa33';
+            ctx.fillRect(291, 340, 6, 12);
+            ctx.fillRect(343, 340, 6, 12);
+
+            drawMileage(2000, 2000);
+        }
+    },
+
+    // NEW HOME
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'The abandoned neighborhood needed repair.\nBut the houses were standing.\nAnd winter was coming. Cold, survivable winter.',
+        draw: (progress) => {
+            drawNorthernScene(0, false);
+
+            // Houses
+            ctx.fillStyle = '#554433';
+            ctx.fillRect(100, 220, 80, 60);
+            ctx.fillRect(220, 210, 90, 70);
+            ctx.fillRect(360, 225, 75, 55);
+            ctx.fillRect(480, 215, 85, 65);
+
+            // Lit windows - HOME
+            ctx.fillStyle = '#ffdd88';
+            ctx.fillRect(115, 235, 20, 18);
+            ctx.fillRect(150, 235, 20, 18);
+            ctx.fillRect(240, 230, 20, 18);
+            ctx.fillRect(280, 230, 20, 18);
+            ctx.fillRect(375, 240, 18, 16);
+            ctx.fillRect(410, 240, 18, 16);
+            ctx.fillRect(500, 235, 20, 18);
+            ctx.fillRect(540, 235, 20, 18);
+
+            // Smoke from chimneys
+            ctx.fillStyle = '#aabbcc';
+            ctx.fillRect(130, 200, 8, 20);
+            ctx.fillRect(255, 190, 8, 20);
+            ctx.fillRect(390, 205, 8, 20);
+            ctx.fillRect(520, 195, 8, 20);
+
+            // People moving in
+            for (let i = 0; i < 6; i++) {
+                drawPerson(150 + i * 70, 300, '#668866', 1.5);
+            }
+        }
+    },
+
+    // SIMONE'S STATION
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'Simone set up a weather station.\nKeeping watch. Keeping records.\nThe fifty-mile line keeps moving north.',
+        draw: (progress) => {
+            drawNorthernScene(0, false);
+
+            // Weather station
+            ctx.fillStyle = '#556655';
+            ctx.fillRect(280, 200, 80, 80);
+
+            // Antenna
+            ctx.fillStyle = '#888888';
+            ctx.fillRect(315, 150, 10, 50);
+            ctx.fillRect(305, 150, 30, 5);
+
+            // Simone working
+            drawPerson(350, 260, '#aa6688', 2);
+
+            // Screen with data
+            ctx.fillStyle = '#113311';
+            ctx.fillRect(250, 320, 60, 40);
+            ctx.fillStyle = '#44ff44';
+            ctx.font = '8px monospace';
+            ctx.fillText('TEMP', 255, 335);
+            ctx.fillText('RAIN', 255, 350);
+        }
+    },
+
+    // GARRETT REBUILDS
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'Garrett helped rebuild water infrastructure.\nFinally using his knowledge to help\ninstead of harm.',
+        draw: (progress) => {
+            // Construction scene
+            ctx.fillStyle = '#445544';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Water tower being built
+            ctx.fillStyle = '#666677';
+            ctx.fillRect(280, 150, 80, 120);
+            ctx.fillRect(260, 270, 120, 30);
+
+            // Garrett working
+            drawPerson(350, 280, '#668866', 2);
+
+            // Hammer
+            ctx.fillStyle = '#888888';
+            ctx.fillRect(370, 290, 25, 6);
+
+            // Other workers
+            drawPerson(250, 280, '#667788', 2);
+            drawPerson(400, 285, '#887766', 2);
+        }
+    },
+
+    // THE BUSES
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Maria kept the buses.\nParked outside the neighborhood, ready.\nThey all knew: they would move again someday.',
+        draw: (progress) => {
+            drawNorthernScene(0, false);
+
+            // Buses parked but ready
+            drawSchoolBus(200, 300, 1.3);
+            drawSchoolBus(380, 305, 1.3);
+
+            // Maria looking at them
+            drawPerson(300, 340, '#884466', 2);
+        }
+    },
+
+    // FINAL WORDS
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'MARIA',
+        text: '"The line keeps moving. We know that now.\nWe will move again someday.\n\nBut not today."',
+        draw: (progress) => {
+            drawNorthernScene(0, false);
+
+            // Maria and group looking at sunset
+            const sunY = 80 + progress * 30;
+
+            // Setting sun
+            ctx.fillStyle = '#ff9966';
+            ctx.beginPath();
+            ctx.arc(520, sunY, 40, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Group silhouettes
+            ctx.fillStyle = '#223322';
+            for (let i = 0; i < 8; i++) {
+                ctx.fillRect(150 + i * 40, 300, 20, 50);
+                ctx.fillRect(155 + i * 40, 285, 10, 20);
+            }
+        }
+    },
+
+    // TITLE END
+    {
+        type: 'title',
+        duration: 10000,
+        draw: (progress) => {
+            // Gradient from heat to cool
+            const gradient = ctx.createLinearGradient(0, 0, 0, 480);
+            gradient.addColorStop(0, '#224466');
+            gradient.addColorStop(0.5, '#446655');
+            gradient.addColorStop(1, '#223322');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = '#aaccaa';
+            ctx.font = '36px monospace';
+            ctx.fillText('NORTHBOUND', 190, 120);
+
+            ctx.fillStyle = '#88aa88';
+            ctx.font = '12px monospace';
+            ctx.fillText('"We are not running to safety.', 210, 160);
+            ctx.fillText('We are running to time."', 230, 180);
+
+            if (progress > 0.2) {
+                ctx.fillStyle = '#669966';
+                ctx.font = '11px monospace';
+                ctx.fillText('Maria Santos - The principal who led them', 50, 250);
+                ctx.fillText('Garrett - The geologist seeking redemption', 50, 270);
+                ctx.fillText('Dr. Simone Adler - The scientist with hard truths', 50, 290);
+                ctx.fillText('Hector - 15 years keeping buses alive', 50, 310);
+                ctx.fillText('David - Patricia\'s son, carrying goodbye', 50, 330);
+            }
+
+            if (progress > 0.4) {
+                ctx.fillStyle = '#557755';
+                ctx.fillText('Alejandro - The scout who mapped the sinkholes', 350, 250);
+                ctx.fillText('Patricia Vance - The one who stayed behind', 350, 270);
+                ctx.fillText('The 51 who made it', 350, 290);
+                ctx.fillText('The 2 who did not', 350, 310);
+            }
+
+            if (progress > 0.6) {
+                ctx.fillStyle = '#88aa88';
+                ctx.font = '14px monospace';
+                ctx.fillText('DISTANCE TRAVELED: 2,000 MILES', 200, 380);
+            }
+
+            if (progress > 0.75) {
+                ctx.fillStyle = '#aaccaa';
+                ctx.font = '10px monospace';
+                ctx.fillText('A STORY FROM THE AUTOGANG UNIVERSE', 220, 420);
+            }
+
+            if (progress > 0.88) {
+                ctx.fillStyle = '#88cc88';
+                ctx.fillText('Press R to replay', 270, 460);
+            }
+        }
+    }
+];
+
+// Game state
+let currentScene = 0;
+let sceneStartTime = 0;
+let scrollX = 0;
+let gameStarted = false;
+let menuSelection = 0;
+let selectionMade = false;
+
+function gameLoop(timestamp) {
+    if (!gameStarted) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    const scene = scenes[currentScene];
+    const elapsed = timestamp - sceneStartTime;
+    const progress = Math.min(elapsed / scene.duration, 1);
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 640, 480);
+
+    scrollX += 2;
+
+    scene.draw(progress, scrollX);
+
+    if (scene.type === 'scene' && scene.text) {
+        drawTextBox(scene.text, scene.speaker);
+    }
+
+    if (scene.type === 'menu') {
+        drawMenu(scene.options, menuSelection, scene.title);
+
+        if (!selectionMade && scene.selectDelay && elapsed > scene.selectDelay) {
+            if (menuSelection < scene.autoSelect) {
+                menuSelection++;
+                playMenuMove();
+            } else if (menuSelection > scene.autoSelect) {
+                menuSelection--;
+                playMenuMove();
+            } else {
+                selectionMade = true;
+                playSelectBeep();
+            }
+        } else if (!selectionMade && !scene.selectDelay) {
+            menuSelection = scene.autoSelect || 0;
+        }
+    }
+
+    if (scene.type === 'scene' && Math.random() > 0.88) {
+        playTextBeep();
+    }
+
+    if (progress >= 1) {
+        currentScene++;
+        sceneStartTime = timestamp;
+        menuSelection = 0;
+        selectionMade = false;
+
+        if (currentScene >= scenes.length) {
+            currentScene = scenes.length - 1;
+            stopMusic();
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+function startGame() {
+    if (gameStarted) return;
+    initAudio();
+    gameStarted = true;
+    sceneStartTime = performance.now();
+    startScreen.style.display = 'none';
+    startMusic();
+}
+
+document.addEventListener('keydown', (e) => {
+    if (!gameStarted) {
+        startGame();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        currentScene = 0;
+        sceneStartTime = performance.now();
+        noteIndex = 0;
+        startMusic();
+    }
+});
+
+startScreen.addEventListener('click', startGame);
+
+requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
