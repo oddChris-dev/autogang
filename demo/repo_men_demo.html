@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE REPO MEN - Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #333;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #0f0;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        #start-screen h1 {
+            font-size: 24px;
+            margin-bottom: 40px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .crt-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <div class="scanlines"></div>
+        <div class="crt-effect"></div>
+        <div id="start-screen">
+            <h1>PRESS ANY KEY TO START</h1>
+            <p style="color: #0a0; font-size: 12px;">[ CLICK OR PRESS SPACE ]</p>
+        </div>
+    </div>
+
+    <script>
+// ============================================
+// THE REPO MEN - 8-BIT DEMO
+// ============================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+// Audio Context
+let audioCtx = null;
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+// Chiptune sound effects
+function playBeep(freq = 440, duration = 0.1, type = 'square') {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playSelectBeep() {
+    playBeep(880, 0.05);
+    setTimeout(() => playBeep(1100, 0.08), 60);
+}
+
+function playTextBeep() {
+    playBeep(220 + Math.random() * 100, 0.02, 'square');
+}
+
+function playMenuMove() {
+    playBeep(330, 0.05);
+}
+
+function playDramaticBeep() {
+    playBeep(110, 0.3, 'sawtooth');
+}
+
+// Simple music sequence
+let musicPlaying = false;
+let musicInterval = null;
+
+const bassline = [110, 110, 130, 110, 146, 146, 130, 110];
+const melody = [330, 392, 440, 392, 330, 294, 330, 294];
+let noteIndex = 0;
+
+function startMusic() {
+    if (musicPlaying || !audioCtx) return;
+    musicPlaying = true;
+
+    musicInterval = setInterval(() => {
+        if (!musicPlaying) return;
+
+        // Bass
+        const bassOsc = audioCtx.createOscillator();
+        const bassGain = audioCtx.createGain();
+        bassOsc.type = 'triangle';
+        bassOsc.frequency.value = bassline[noteIndex % bassline.length];
+        bassGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        bassGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        bassOsc.connect(bassGain);
+        bassGain.connect(audioCtx.destination);
+        bassOsc.start();
+        bassOsc.stop(audioCtx.currentTime + 0.3);
+
+        // Melody (every other beat)
+        if (noteIndex % 2 === 0) {
+            const melOsc = audioCtx.createOscillator();
+            const melGain = audioCtx.createGain();
+            melOsc.type = 'square';
+            melOsc.frequency.value = melody[(noteIndex / 2) % melody.length];
+            melGain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+            melGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            melOsc.connect(melGain);
+            melGain.connect(audioCtx.destination);
+            melOsc.start();
+            melOsc.stop(audioCtx.currentTime + 0.2);
+        }
+
+        noteIndex++;
+    }, 250);
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicInterval) clearInterval(musicInterval);
+}
+
+// Color palette (limited like Apple II / NES)
+const COLORS = {
+    black: '#000000',
+    darkGray: '#333333',
+    gray: '#666666',
+    lightGray: '#999999',
+    white: '#ffffff',
+    red: '#cc3333',
+    darkRed: '#881111',
+    orange: '#cc6633',
+    yellow: '#cccc33',
+    green: '#33cc33',
+    darkGreen: '#118811',
+    cyan: '#33cccc',
+    blue: '#3333cc',
+    darkBlue: '#111188',
+    purple: '#9933cc',
+    brown: '#774411'
+};
+
+// Pixel text renderer
+function drawPixelText(text, x, y, color = COLORS.white, scale = 1) {
+    ctx.fillStyle = color;
+    ctx.font = `${8 * scale}px monospace`;
+    ctx.fillText(text, x, y);
+}
+
+// Draw pixel art car (simple 8-bit style)
+function drawCar(x, y, color = COLORS.gray, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = color;
+    // Body
+    ctx.fillRect(x + 4*s, y + 4*s, 24*s, 8*s);
+    ctx.fillRect(x + 8*s, y, 16*s, 4*s);
+    // Windows
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x + 10*s, y + 1*s, 5*s, 3*s);
+    ctx.fillRect(x + 17*s, y + 1*s, 5*s, 3*s);
+    // Wheels
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 6*s, y + 12*s, 6*s, 4*s);
+    ctx.fillRect(x + 20*s, y + 12*s, 6*s, 4*s);
+}
+
+// Draw tow truck
+function drawTowTruck(x, y, scale = 1) {
+    const s = scale;
+    // Cab
+    ctx.fillStyle = COLORS.red;
+    ctx.fillRect(x, y + 4*s, 12*s, 12*s);
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x + 2*s, y + 6*s, 8*s, 6*s);
+    // Bed
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 12*s, y + 8*s, 20*s, 8*s);
+    // Crane
+    ctx.fillStyle = COLORS.yellow;
+    ctx.fillRect(x + 14*s, y, 2*s, 8*s);
+    ctx.fillRect(x + 14*s, y, 10*s, 2*s);
+    // Wheels
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x + 2*s, y + 16*s, 6*s, 4*s);
+    ctx.fillRect(x + 24*s, y + 16*s, 6*s, 4*s);
+}
+
+// Draw person (simple sprite)
+function drawPerson(x, y, color = COLORS.blue, scale = 1) {
+    const s = scale;
+    // Head
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x + 2*s, y, 4*s, 4*s);
+    // Body
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1*s, y + 4*s, 6*s, 8*s);
+    // Legs
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 1*s, y + 12*s, 2*s, 4*s);
+    ctx.fillRect(x + 5*s, y + 12*s, 2*s, 4*s);
+}
+
+// Draw building
+function drawBuilding(x, y, width, height, color = COLORS.darkGray) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, width, height);
+    // Windows
+    ctx.fillStyle = COLORS.yellow;
+    for (let wy = y + 8; wy < y + height - 8; wy += 16) {
+        for (let wx = x + 8; wx < x + width - 8; wx += 16) {
+            if (Math.random() > 0.3) {
+                ctx.fillRect(wx, wy, 8, 8);
+            }
+        }
+    }
+}
+
+// Draw desert/road scene
+function drawRoadScene(scrollX = 0) {
+    // Sky gradient
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Stars
+    ctx.fillStyle = COLORS.white;
+    for (let i = 0; i < 50; i++) {
+        const sx = (i * 73 + scrollX * 0.1) % 640;
+        const sy = (i * 37) % 180;
+        ctx.fillRect(sx, sy, 2, 2);
+    }
+
+    // Ground
+    ctx.fillStyle = COLORS.brown;
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Road
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(0, 280, 640, 100);
+
+    // Road lines
+    ctx.fillStyle = COLORS.yellow;
+    for (let i = -1; i < 12; i++) {
+        const lx = (i * 80 - (scrollX % 80));
+        ctx.fillRect(lx, 325, 40, 4);
+    }
+
+    // Cacti
+    ctx.fillStyle = COLORS.darkGreen;
+    for (let i = 0; i < 5; i++) {
+        const cx = (i * 200 - (scrollX * 0.5) % 1000 + 1000) % 1000 - 100;
+        ctx.fillRect(cx, 220, 8, 40);
+        ctx.fillRect(cx - 12, 230, 12, 6);
+        ctx.fillRect(cx + 8, 240, 12, 6);
+    }
+}
+
+// Draw city scene
+function drawCityScene(scrollX = 0) {
+    // Sky
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(0, 0, 640, 250);
+
+    // Distant buildings
+    ctx.fillStyle = COLORS.darkGray;
+    for (let i = 0; i < 10; i++) {
+        const bx = (i * 120 - (scrollX * 0.3) % 1200 + 1200) % 1200 - 200;
+        const bh = 80 + (i * 37) % 100;
+        drawBuilding(bx, 250 - bh, 80, bh, COLORS.darkGray);
+    }
+
+    // Ground
+    ctx.fillStyle = COLORS.gray;
+    ctx.fillRect(0, 250, 640, 230);
+
+    // Road
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(0, 300, 640, 100);
+}
+
+// Draw text box (Ninja Gaiden style)
+function drawTextBox(text, speaker = null) {
+    // Box background
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(20, 380, 600, 90);
+
+    // Border
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 380, 600, 90);
+
+    // Inner border
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.strokeRect(24, 384, 592, 82);
+
+    // Speaker name
+    if (speaker) {
+        ctx.fillStyle = COLORS.black;
+        ctx.fillRect(30, 372, speaker.length * 10 + 20, 16);
+        ctx.fillStyle = COLORS.yellow;
+        ctx.font = '14px monospace';
+        ctx.fillText(speaker, 40, 385);
+    }
+
+    // Text
+    ctx.fillStyle = COLORS.white;
+    ctx.font = '14px monospace';
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+        ctx.fillText(line, 40, 410 + i * 20);
+    });
+}
+
+// Draw menu
+function drawMenu(options, selectedIndex, title = null) {
+    const menuWidth = 300;
+    const menuHeight = options.length * 30 + 40;
+    const menuX = (640 - menuWidth) / 2;
+    const menuY = (480 - menuHeight) / 2;
+
+    // Background
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+
+    // Border
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.strokeRect(menuX + 4, menuY + 4, menuWidth - 8, menuHeight - 8);
+
+    // Title
+    if (title) {
+        ctx.fillStyle = COLORS.yellow;
+        ctx.font = '14px monospace';
+        ctx.fillText(title, menuX + 20, menuY + 25);
+    }
+
+    // Options
+    options.forEach((opt, i) => {
+        const optY = menuY + 50 + i * 30;
+
+        if (i === selectedIndex) {
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillText('>', menuX + 20, optY);
+            ctx.fillStyle = COLORS.white;
+        } else {
+            ctx.fillStyle = COLORS.gray;
+        }
+        ctx.font = '14px monospace';
+        ctx.fillText(opt, menuX + 40, optY);
+    });
+}
+
+// Scene definitions
+const scenes = [
+    // TITLE SEQUENCE
+    {
+        type: 'title',
+        duration: 4000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Glitch effect
+            if (Math.random() > 0.95) {
+                ctx.fillStyle = COLORS.white;
+                ctx.fillRect(0, Math.random() * 480, 640, 2);
+            }
+
+            ctx.fillStyle = COLORS.red;
+            ctx.font = '48px monospace';
+            ctx.fillText('THE REPO MEN', 140, 200);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '16px monospace';
+            ctx.fillText('A POST-APOCALYPTIC TALE', 200, 250);
+
+            if (progress > 0.5) {
+                ctx.fillStyle = COLORS.darkGreen;
+                ctx.font = '12px monospace';
+                ctx.fillText('TEXAS WASTELAND - 2 YEARS AFTER THE COLLAPSE', 160, 350);
+            }
+        }
+    },
+
+    // INTRO - LA GARRA
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Luis Machado repossessed cars for eleven years.\nHe knew how to find them, take them, disappear.',
+        draw: (progress, scrollX) => {
+            drawRoadScene(scrollX);
+            drawTowTruck(200 + Math.sin(progress * 10) * 2, 290, 2);
+
+            // "LA GARRA" text on truck
+            ctx.fillStyle = COLORS.yellow;
+            ctx.font = '10px monospace';
+            ctx.fillText('LA GARRA', 232, 310);
+        }
+    },
+
+    // THE SHOP
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'When money became memory, his skills translated.\nNow he acquires vehicles for THE SHOP.',
+        draw: (progress, scrollX) => {
+            drawCityScene(scrollX);
+
+            // Multiple vehicles
+            drawTowTruck(100, 310, 1.5);
+            drawCar(300, 320, COLORS.blue, 1.5);
+            drawCar(420, 325, COLORS.green, 1.5);
+
+            // People
+            drawPerson(350, 290, COLORS.orange, 2);
+            drawPerson(380, 290, COLORS.purple, 2);
+        }
+    },
+
+    // CREW INTRO
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ THE ACQUISITION CREW ]',
+        options: [
+            'LUIS - Driver / Leader',
+            'CHEN - Electronics Expert',
+            'YOLANDA - Negotiator',
+            'DUSTIN - ???'
+        ],
+        autoSelect: 0,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Draw crew portraits (simple pixel art)
+            const portraits = [
+                { x: 80, color: COLORS.red },
+                { x: 200, color: COLORS.blue },
+                { x: 320, color: COLORS.purple },
+                { x: 440, color: COLORS.gray }
+            ];
+
+            portraits.forEach((p, i) => {
+                ctx.fillStyle = COLORS.darkGray;
+                ctx.fillRect(p.x, 80, 80, 100);
+                drawPerson(p.x + 30, 100, p.color, 3);
+            });
+        }
+    },
+
+    // FREDERICKSBURG MISSION
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'RADIO',
+        text: '"Settlement near Fredericksburg has a working\nambulance. No one who can fix it. Classic trade."',
+        draw: (progress, scrollX) => {
+            drawRoadScene(scrollX);
+
+            // Convoy moving
+            drawTowTruck(150 - scrollX * 0.01, 290, 2);
+            drawCar(350 - scrollX * 0.01, 300, COLORS.gray, 2);
+        }
+    },
+
+    // FIRST CHOICE
+    {
+        type: 'menu',
+        duration: 4000,
+        title: '[ NEGOTIATION ]',
+        options: [
+            '> Standard trade',
+            '  Demand more (danger)',
+            '  Walk away'
+        ],
+        autoSelect: 0,
+        selectDelay: 2000,
+        draw: (progress) => {
+            drawCityScene(0);
+
+            // Ambulance
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(280, 300, 80, 40);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(310, 305, 20, 30);
+            ctx.fillRect(305, 315, 30, 10);
+
+            // Settlement people
+            for (let i = 0; i < 4; i++) {
+                drawPerson(150 + i * 40, 300, COLORS.brown, 2);
+            }
+        }
+    },
+
+    // YOLANDA NEGOTIATES
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'YOLANDA',
+        text: '"We fix the ambulance. You give us vegetables.\nAnd THE SHOP adds you to our circuit.\nRegular maintenance. Ongoing relationship."',
+        draw: (progress) => {
+            drawCityScene(0);
+            drawPerson(300, 280, COLORS.purple, 3);
+            drawPerson(400, 280, COLORS.brown, 3);
+        }
+    },
+
+    // DUSTIN FIXES IT
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'CHEN',
+        text: '"Dustin fixed the ambulance in six hours.\nI have never seen anyone work like that."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Garage interior
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(0, 350, 640, 130);
+
+            // Ambulance being worked on
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(200, 280, 120, 60);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(250, 290, 30, 40);
+
+            // Dustin under vehicle
+            drawPerson(280, 320, COLORS.gray, 2);
+
+            // Tools scattered
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(180, 340, 20, 5);
+            ctx.fillRect(350, 345, 15, 5);
+        }
+    },
+
+    // THE EL CAMINO
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'DUSTIN',
+        text: '"There is a car. Few miles out. Belonged to\nsomeone who... does not need it anymore."',
+        draw: (progress) => {
+            drawRoadScene(0);
+
+            // El Camino (special car)
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(280, 300, 80, 24);
+            ctx.fillRect(295, 290, 40, 12);
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillRect(300, 292, 12, 8);
+            ctx.fillRect(318, 292, 12, 8);
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(290, 324, 16, 8);
+            ctx.fillRect(340, 324, 16, 8);
+
+            // Dustin standing by it
+            drawPerson(250, 290, COLORS.gray, 2);
+        }
+    },
+
+    // EMOTIONAL BEAT
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Dustin sat in the driver\'s seat for a long time\nbefore starting the engine.\nThey did not talk about it.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Just the car, isolated
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(250, 220, 140, 40);
+            ctx.fillRect(280, 200, 70, 24);
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillRect(290, 205, 20, 14);
+            ctx.fillRect(320, 205, 20, 14);
+
+            // Interior glow
+            if (Math.sin(progress * 5) > 0) {
+                ctx.fillStyle = 'rgba(255, 200, 100, 0.3)';
+                ctx.fillRect(285, 202, 60, 20);
+            }
+        }
+    },
+
+    // === PEDIATRIC WARD INTERSECTION ===
+    {
+        type: 'transition',
+        duration: 2000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.red;
+            ctx.font = '14px monospace';
+            ctx.fillText('THREE WEEKS LATER...', 240, 240);
+            ctx.fillText('OUTSIDE BIRMINGHAM', 245, 270);
+        }
+    },
+
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'RADIO',
+        text: '"All vehicles, this is Dr. Okonkwo. We have\nmedical supplies but our transport is failing.\nAny mechanics in range? Children on board."',
+        draw: (progress, scrollX) => {
+            drawRoadScene(scrollX);
+
+            // School buses (from Pediatric Ward story)
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(200, 290, 100, 40);
+            ctx.fillRect(220, 275, 60, 18);
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(210, 330, 20, 10);
+            ctx.fillRect(270, 330, 20, 10);
+
+            // Second bus, smoking
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(350, 295, 100, 40);
+            ctx.fillStyle = COLORS.gray;
+            // Smoke
+            for (let i = 0; i < 5; i++) {
+                ctx.fillRect(380 + Math.sin(progress * 10 + i) * 5, 270 - i * 10, 8, 8);
+            }
+        }
+    },
+
+    // CHOICE - HELP THE BUSES
+    {
+        type: 'menu',
+        duration: 4000,
+        title: '[ INCOMING DISTRESS ]',
+        options: [
+            '  Ignore - not our problem',
+            '  Investigate',
+            '> Help them'
+        ],
+        autoSelect: 2,
+        selectDelay: 2500,
+        draw: (progress) => {
+            drawRoadScene(0);
+
+            // Distant buses
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(400, 310, 40, 16);
+            ctx.fillRect(450, 312, 40, 16);
+        }
+    },
+
+    // MEETING DR. OKONKWO
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'DR. OKONKWO',
+        text: '"Thank god. The alternator is gone. We have\nseven children who need to reach Atlanta.\nI can trade medical supplies. Antibiotics."',
+        draw: (progress) => {
+            drawRoadScene(0);
+
+            // La Garra and buses
+            drawTowTruck(100, 300, 1.5);
+
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(300, 295, 80, 35);
+
+            // Dr. Okonkwo (in medical coat - white)
+            drawPerson(250, 280, COLORS.white, 2);
+
+            // Luis
+            drawPerson(180, 280, COLORS.red, 2);
+        }
+    },
+
+    // DUSTIN STEPS UP
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'DUSTIN',
+        text: '"I can fix it. Alternator is nothing.\nBut Doc... some of your people should come\nwith us. The Shop could use a medic."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Under bus view
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(100, 50, 440, 100);
+
+            // Dustin working
+            drawPerson(300, 180, COLORS.gray, 2);
+
+            // Tools
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(250, 250, 30, 8);
+            ctx.fillRect(350, 245, 25, 8);
+        }
+    },
+
+    // NURSE DEV JOINS
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Dev, the nurse, joined THE SHOP that day.\nShe carried guilt from the hospital.\nShe carried supplies that would save lives.',
+        draw: (progress) => {
+            drawRoadScene(0);
+
+            // Convoy forming
+            drawTowTruck(80, 300, 1.5);
+            drawCar(220, 310, COLORS.blue, 1.5);
+
+            // Buses heading other direction
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(450, 295, 60, 25);
+            ctx.fillRect(520, 295, 60, 25);
+
+            // Arrow showing separation
+            ctx.fillStyle = COLORS.white;
+            ctx.font = '20px monospace';
+            ctx.fillText('<--', 350, 320);
+            ctx.fillText('-->', 400, 290);
+        }
+    },
+
+    // === BACK TO MAIN STORY ===
+    {
+        type: 'transition',
+        duration: 2000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = '14px monospace';
+            ctx.fillText('TWO MONTHS LATER...', 245, 240);
+            ctx.fillText('THE CLAIM TERRITORY', 240, 270);
+        }
+    },
+
+    // THE CLAIM
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'CONSTANCE',
+        text: '"You are operating in Claim territory.\nYou owe back taxes. This is not a threat.\nThis is... bureaucracy."',
+        draw: (progress) => {
+            drawCityScene(0);
+
+            // Roadblock
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(200, 320, 240, 10);
+
+            // Armed guards
+            for (let i = 0; i < 3; i++) {
+                drawPerson(220 + i * 80, 280, COLORS.darkRed, 2);
+            }
+
+            // Constance (formal, gray)
+            drawPerson(320, 260, COLORS.gray, 2.5);
+        }
+    },
+
+    // NEGOTIATION CHOICE
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ THE CLAIM DEMANDS PAYMENT ]',
+        options: [
+            '  Pay the tax',
+            '  Refuse and fight',
+            '> Propose partnership'
+        ],
+        autoSelect: 2,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Tense standoff scene
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(0, 400, 640, 80);
+
+            // Two sides
+            drawPerson(200, 350, COLORS.red, 2);
+            drawPerson(240, 350, COLORS.blue, 2);
+
+            drawPerson(380, 350, COLORS.gray, 2);
+            drawPerson(420, 350, COLORS.darkRed, 2);
+        }
+    },
+
+    // THE DEAL
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'LUIS',
+        text: '"You have seized vehicles. Most barely run.\nWe fix them. You keep six. We keep four.\nPartnership."',
+        draw: (progress) => {
+            drawCityScene(0);
+
+            // Handshake moment (simple)
+            drawPerson(280, 280, COLORS.red, 2);
+            drawPerson(340, 280, COLORS.gray, 2);
+
+            // Hands meeting
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(305, 310, 30, 8);
+        }
+    },
+
+    // THE DISCOVERY
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'DUSTIN',
+        text: '"Luis. This car... child seat in back.\nStill stained. Registration matches missing\npersons reports from three settlements."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Car interior focus
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(150, 150, 340, 200);
+
+            // Child seat
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(350, 200, 60, 80);
+
+            // Stain
+            ctx.fillStyle = COLORS.red;
+            ctx.beginPath();
+            ctx.arc(380, 260, 15, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Dustin's face (close up, simple)
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(200, 200, 60, 60);
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(215, 220, 10, 10);
+            ctx.fillRect(245, 220, 10, 10);
+        }
+    },
+
+    // MORAL CHOICE
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ WHAT DO YOU DO? ]',
+        options: [
+            '  Ignore it - keep the deal',
+            '> Investigate quietly',
+            '  Confront Constance'
+        ],
+        autoSelect: 1,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Child seat, centered, haunting
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(270, 180, 100, 120);
+
+            // Spotlight effect
+            ctx.fillStyle = 'rgba(255, 255, 200, 0.1)';
+            ctx.beginPath();
+            ctx.arc(320, 240, 100, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    },
+
+    // DOUGLAS REVEALS
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'DOUGLAS',
+        text: '"Wheeler has a side operation. Certain\n\'delinquents\' get sold to labor camps west.\nPermian Basin. Oil fields. They never come back."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 350);
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(0, 350, 640, 130);
+
+            // Bar scene
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(100, 320, 440, 40);
+
+            // Douglas (drunk, slumped)
+            drawPerson(300, 280, COLORS.darkGreen, 2);
+
+            // Bottle
+            ctx.fillStyle = COLORS.green;
+            ctx.fillRect(350, 330, 10, 25);
+
+            // Yolanda listening
+            drawPerson(380, 280, COLORS.purple, 2);
+        }
+    },
+
+    // THE DECISION
+    {
+        type: 'transition',
+        duration: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.red;
+            ctx.font = '16px monospace';
+            const text = 'LUIS MADE A CHOICE THAT SPLIT THE SHOP';
+            ctx.fillText(text, 130, 220);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '14px monospace';
+            ctx.fillText('Four people. One tow truck.', 220, 260);
+            ctx.fillText('Into the Permian Basin.', 235, 285);
+        }
+    },
+
+    // LABOR CAMP
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'The camp was exactly as bad as advertised.\nFences. Guards. People working equipment that\nshould not still be running.',
+        draw: (progress) => {
+            // Harsh industrial scene
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(0, 0, 640, 150);
+
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(0, 150, 640, 330);
+
+            // Oil derricks
+            ctx.fillStyle = COLORS.black;
+            for (let i = 0; i < 3; i++) {
+                const dx = 150 + i * 180;
+                ctx.fillRect(dx, 100, 10, 200);
+                ctx.fillRect(dx - 20, 100, 50, 10);
+                ctx.fillRect(dx - 10, 110, 30, 80);
+            }
+
+            // Fence
+            ctx.fillStyle = COLORS.gray;
+            for (let i = 0; i < 20; i++) {
+                ctx.fillRect(i * 35, 300, 5, 80);
+            }
+            ctx.fillRect(0, 300, 640, 5);
+            ctx.fillRect(0, 350, 640, 5);
+
+            // Workers (small, distant)
+            for (let i = 0; i < 6; i++) {
+                ctx.fillStyle = COLORS.orange;
+                ctx.fillRect(200 + i * 40, 330, 6, 12);
+            }
+        }
+    },
+
+    // THE PLAN
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ RESCUE OPTIONS ]',
+        options: [
+            '  Assault the camp',
+            '  Buy their freedom',
+            '> Repo man solution'
+        ],
+        autoSelect: 2,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Planning scene - map
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(150, 100, 340, 250);
+
+            // Map contents
+            ctx.fillStyle = COLORS.green;
+            ctx.font = '10px monospace';
+            ctx.fillText('CAMP LAYOUT', 270, 130);
+
+            ctx.fillRect(200, 180, 80, 40); // Building
+            ctx.fillRect(350, 200, 60, 60); // Building
+
+            ctx.fillStyle = COLORS.red;
+            ctx.fillText('VEHICLES', 180, 280);
+            ctx.fillRect(180, 285, 100, 20);
+        }
+    },
+
+    // THE HEIST
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'NARRATOR',
+        text: 'They took everything. Every truck, tanker,\ntransport. In one night, using every skill,\nthey disabled Briggs\' entire operation.',
+        draw: (progress) => {
+            // Night scene
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(0, 0, 640, 200);
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 200, 640, 280);
+
+            // Moving vehicles (animation)
+            const offset = (progress * 500) % 800;
+
+            drawTowTruck(50 + offset, 250, 1.5);
+            drawCar(150 + offset, 270, COLORS.gray, 1.5);
+            drawCar(250 + offset, 265, COLORS.brown, 1.5);
+
+            // Stars
+            ctx.fillStyle = COLORS.white;
+            for (let i = 0; i < 30; i++) {
+                ctx.fillRect((i * 73) % 640, (i * 37) % 180, 2, 2);
+            }
+
+            // Chaos behind (fires, small)
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(500 - offset * 0.5, 220, 20, 30);
+            ctx.fillRect(550 - offset * 0.5, 230, 15, 25);
+        }
+    },
+
+    // ESCAPE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'In the chaos, people walked away.\nThe family. Others. Not everyone.\nBut enough.',
+        draw: (progress) => {
+            // Dawn scene
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(0, 0, 640, 100);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(0, 100, 640, 100);
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(0, 200, 640, 280);
+
+            // Silhouettes walking
+            ctx.fillStyle = COLORS.black;
+            for (let i = 0; i < 8; i++) {
+                const px = 100 + i * 60 + Math.sin(progress * 5 + i) * 5;
+                ctx.fillRect(px, 280, 12, 30);
+                ctx.fillRect(px + 2, 270, 8, 12);
+            }
+
+            // La Garra in distance
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(450, 300, 50, 20);
+        }
+    },
+
+    // DUSTIN'S TRUTH
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'DUSTIN',
+        text: '"The El Camino... it was my parents\' car.\nThey did not make it. I did.\nNow other families might."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Dustin and the El Camino
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(200, 250, 140, 40);
+            ctx.fillRect(230, 230, 70, 24);
+
+            // Dustin, finally at peace
+            drawPerson(170, 240, COLORS.gray, 2.5);
+
+            // Starlight
+            ctx.fillStyle = COLORS.white;
+            for (let i = 0; i < 20; i++) {
+                ctx.fillRect((i * 83) % 640, (i * 41) % 200, 2, 2);
+            }
+        }
+    },
+
+    // ENDING
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'THE SHOP gained something that day.\nA reputation. The crew that doesn\'t just\nfix cars. The crew that takes them back.',
+        draw: (progress) => {
+            drawRoadScene(progress * 200);
+
+            // Convoy - bigger now
+            drawTowTruck(100, 290, 2);
+            drawCar(280, 300, COLORS.orange, 2); // El Camino
+            drawCar(420, 305, COLORS.blue, 1.8);
+            drawCar(530, 308, COLORS.green, 1.5);
+        }
+    },
+
+    // FINAL TITLE
+    {
+        type: 'title',
+        duration: 8000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.red;
+            ctx.font = '32px monospace';
+            ctx.fillText('THE REPO MEN', 190, 180);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '14px monospace';
+            ctx.fillText('A STORY FROM THE AUTOGANG UNIVERSE', 150, 230);
+
+            if (progress > 0.3) {
+                ctx.fillStyle = COLORS.cyan;
+                ctx.font = '12px monospace';
+                ctx.fillText('CHARACTERS:', 50, 300);
+                ctx.fillStyle = COLORS.white;
+                ctx.fillText('Luis Machado - Leader', 50, 320);
+                ctx.fillText('Chen - Electronics', 50, 340);
+                ctx.fillText('Yolanda - Negotiator', 50, 360);
+                ctx.fillText('Dustin - Mechanic', 50, 380);
+                ctx.fillText('Dev - Nurse (from The Pediatric Ward)', 50, 400);
+            }
+
+            if (progress > 0.6) {
+                ctx.fillStyle = COLORS.yellow;
+                ctx.font = '12px monospace';
+                ctx.fillText('DEMO VERSION', 450, 320);
+                ctx.fillStyle = COLORS.gray;
+                ctx.fillText('Full game in development', 400, 345);
+            }
+
+            if (progress > 0.8) {
+                ctx.fillStyle = COLORS.green;
+                ctx.font = '10px monospace';
+                ctx.fillText('Press R to replay', 270, 450);
+            }
+        }
+    }
+];
+
+// Game state
+let currentScene = 0;
+let sceneStartTime = 0;
+let scrollX = 0;
+let gameStarted = false;
+let menuSelection = 0;
+let selectionMade = false;
+
+// Main game loop
+function gameLoop(timestamp) {
+    if (!gameStarted) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    const scene = scenes[currentScene];
+    const elapsed = timestamp - sceneStartTime;
+    const progress = Math.min(elapsed / scene.duration, 1);
+
+    // Clear
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Update scroll
+    scrollX += 2;
+
+    // Draw scene
+    scene.draw(progress, scrollX);
+
+    // Draw text box for scene type
+    if (scene.type === 'scene' && scene.text) {
+        drawTextBox(scene.text, scene.speaker);
+    }
+
+    // Draw menu for menu type
+    if (scene.type === 'menu') {
+        drawMenu(scene.options, menuSelection, scene.title);
+
+        // Auto-select logic
+        if (!selectionMade && scene.selectDelay && elapsed > scene.selectDelay) {
+            // Animate to selection
+            if (menuSelection < scene.autoSelect) {
+                menuSelection++;
+                playMenuMove();
+            } else if (menuSelection > scene.autoSelect) {
+                menuSelection--;
+                playMenuMove();
+            } else {
+                selectionMade = true;
+                playSelectBeep();
+            }
+        } else if (!selectionMade && !scene.selectDelay) {
+            menuSelection = scene.autoSelect;
+        }
+    }
+
+    // Text beeps
+    if (scene.type === 'scene' && Math.random() > 0.85) {
+        playTextBeep();
+    }
+
+    // Transition to next scene
+    if (progress >= 1) {
+        currentScene++;
+        sceneStartTime = timestamp;
+        menuSelection = 0;
+        selectionMade = false;
+
+        if (currentScene >= scenes.length) {
+            currentScene = scenes.length - 1; // Stay on last scene
+            stopMusic();
+        }
+
+        // Dramatic beep on transitions
+        if (scenes[currentScene]?.type === 'transition') {
+            playDramaticBeep();
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start handler
+function startGame() {
+    if (gameStarted) return;
+
+    initAudio();
+    gameStarted = true;
+    sceneStartTime = performance.now();
+    startScreen.style.display = 'none';
+    startMusic();
+}
+
+// Event listeners
+document.addEventListener('keydown', (e) => {
+    if (!gameStarted) {
+        startGame();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        currentScene = 0;
+        sceneStartTime = performance.now();
+        startMusic();
+    }
+});
+
+startScreen.addEventListener('click', startGame);
+
+// Start the loop
+requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
