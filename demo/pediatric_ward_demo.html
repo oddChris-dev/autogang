@@ -1,0 +1,1647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE PEDIATRIC WARD - Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #333;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #8af;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        #start-screen h1 {
+            font-size: 20px;
+            margin-bottom: 40px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .crt-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <div class="scanlines"></div>
+        <div class="crt-effect"></div>
+        <div id="start-screen">
+            <p style="color: #446; font-size: 11px; margin-bottom: 20px;">[ WARNING: THIS STORY CONTAINS THEMES OF ILLNESS AND LOSS ]</p>
+            <h1>PRESS ANY KEY TO BEGIN</h1>
+            <p style="color: #668; font-size: 12px;">[ CLICK OR PRESS SPACE ]</p>
+        </div>
+    </div>
+
+    <script>
+// ============================================
+// THE PEDIATRIC WARD - 8-BIT DEMO
+// ============================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+let audioCtx = null;
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+// Somber sound effects
+function playBeep(freq = 440, duration = 0.1, type = 'triangle') {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playSelectBeep() {
+    playBeep(440, 0.08);
+    setTimeout(() => playBeep(550, 0.1), 80);
+}
+
+function playTextBeep() {
+    playBeep(180 + Math.random() * 60, 0.03, 'triangle');
+}
+
+function playMenuMove() {
+    playBeep(280, 0.05);
+}
+
+function playHeartbeat() {
+    playBeep(80, 0.15, 'sine');
+    setTimeout(() => playBeep(60, 0.2, 'sine'), 200);
+}
+
+function playSadNote() {
+    playBeep(220, 0.5, 'triangle');
+    setTimeout(() => playBeep(196, 0.6, 'triangle'), 300);
+}
+
+// Melancholic music - minor key
+let musicPlaying = false;
+let musicInterval = null;
+
+// A minor progression
+const bassline = [110, 110, 98, 98, 82, 82, 98, 98]; // Am - G - F - G
+const melody = [220, 262, 247, 220, 196, 220, 247, 262]; // Melancholic melody
+let noteIndex = 0;
+
+function startMusic() {
+    if (musicPlaying || !audioCtx) return;
+    musicPlaying = true;
+
+    musicInterval = setInterval(() => {
+        if (!musicPlaying) return;
+
+        // Soft bass
+        const bassOsc = audioCtx.createOscillator();
+        const bassGain = audioCtx.createGain();
+        bassOsc.type = 'sine';
+        bassOsc.frequency.value = bassline[noteIndex % bassline.length];
+        bassGain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        bassGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        bassOsc.connect(bassGain);
+        bassGain.connect(audioCtx.destination);
+        bassOsc.start();
+        bassOsc.stop(audioCtx.currentTime + 0.4);
+
+        // Gentle melody
+        if (noteIndex % 2 === 0) {
+            const melOsc = audioCtx.createOscillator();
+            const melGain = audioCtx.createGain();
+            melOsc.type = 'triangle';
+            melOsc.frequency.value = melody[(noteIndex / 2) % melody.length];
+            melGain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+            melGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+            melOsc.connect(melGain);
+            melGain.connect(audioCtx.destination);
+            melOsc.start();
+            melOsc.stop(audioCtx.currentTime + 0.35);
+        }
+
+        noteIndex++;
+    }, 350);
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicInterval) clearInterval(musicInterval);
+}
+
+// Muted color palette - more somber
+const COLORS = {
+    black: '#000000',
+    darkGray: '#222233',
+    gray: '#445566',
+    lightGray: '#778899',
+    white: '#aabbcc',
+    red: '#994444',
+    darkRed: '#662222',
+    orange: '#996655',
+    yellow: '#998866',
+    green: '#447755',
+    darkGreen: '#224433',
+    cyan: '#668899',
+    blue: '#445577',
+    darkBlue: '#1a1a2e',
+    purple: '#664477',
+    brown: '#443322',
+    pink: '#885566',
+    hospitalGreen: '#557766',
+    hospitalBlue: '#446688'
+};
+
+// Draw hospital scene
+function drawHospital(darkened = false) {
+    // Dark sky
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Hospital building
+    ctx.fillStyle = darkened ? '#111122' : COLORS.gray;
+    ctx.fillRect(120, 80, 400, 200);
+
+    // Windows - some lit, some dark
+    for (let y = 100; y < 260; y += 40) {
+        for (let x = 140; x < 500; x += 50) {
+            if (!darkened && Math.random() > 0.4) {
+                ctx.fillStyle = COLORS.yellow;
+            } else {
+                ctx.fillStyle = COLORS.darkGray;
+            }
+            ctx.fillRect(x, y, 30, 25);
+        }
+    }
+
+    // Red cross
+    ctx.fillStyle = darkened ? COLORS.darkRed : COLORS.red;
+    ctx.fillRect(295, 90, 50, 15);
+    ctx.fillRect(310, 75, 20, 45);
+
+    // Ground
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(0, 280, 640, 200);
+
+    // Parking lot
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(100, 300, 440, 150);
+}
+
+// Draw school bus
+function drawSchoolBus(x, y, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = COLORS.yellow;
+    ctx.fillRect(x, y + 4*s, 60*s, 24*s);
+    // Windows
+    ctx.fillStyle = COLORS.cyan;
+    for (let i = 0; i < 4; i++) {
+        ctx.fillRect(x + 8*s + i*14*s, y + 8*s, 10*s, 12*s);
+    }
+    // Wheels
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x + 8*s, y + 28*s, 12*s, 8*s);
+    ctx.fillRect(x + 40*s, y + 28*s, 12*s, 8*s);
+}
+
+// Draw small person (child)
+function drawChild(x, y, color = COLORS.blue, scale = 1) {
+    const s = scale;
+    // Head
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x + 1*s, y, 4*s, 4*s);
+    // Body
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y + 4*s, 6*s, 6*s);
+    // Legs
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x, y + 10*s, 2*s, 3*s);
+    ctx.fillRect(x + 4*s, y + 10*s, 2*s, 3*s);
+}
+
+// Draw adult person
+function drawPerson(x, y, color = COLORS.blue, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x + 2*s, y, 4*s, 4*s);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 1*s, y + 4*s, 6*s, 8*s);
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 1*s, y + 12*s, 2*s, 4*s);
+    ctx.fillRect(x + 5*s, y + 12*s, 2*s, 4*s);
+}
+
+// Draw doctor (white coat)
+function drawDoctor(x, y, scale = 1) {
+    drawPerson(x, y, COLORS.white, scale);
+    // Stethoscope hint
+    ctx.fillStyle = COLORS.gray;
+    ctx.fillRect(x + 3*scale, y + 5*scale, 2*scale, 4*scale);
+}
+
+// Draw hospital bed
+function drawBed(x, y, occupied = true, childSize = false) {
+    ctx.fillStyle = COLORS.white;
+    ctx.fillRect(x, y, 50, 20);
+    ctx.fillStyle = COLORS.gray;
+    ctx.fillRect(x, y + 20, 50, 5);
+    // Legs
+    ctx.fillRect(x + 5, y + 25, 4, 10);
+    ctx.fillRect(x + 41, y + 25, 4, 10);
+
+    if (occupied) {
+        // Person in bed
+        ctx.fillStyle = COLORS.orange;
+        ctx.fillRect(x + 5, y + 5, 8, 8);
+        ctx.fillStyle = childSize ? COLORS.pink : COLORS.blue;
+        ctx.fillRect(x + 15, y + 3, 30, 14);
+    }
+}
+
+// Draw minivan
+function drawMinivan(x, y, color = COLORS.gray, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y + 4*s, 40*s, 16*s);
+    ctx.fillRect(x + 4*s, y, 28*s, 6*s);
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x + 6*s, y + 1*s, 10*s, 4*s);
+    ctx.fillRect(x + 20*s, y + 1*s, 10*s, 4*s);
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x + 4*s, y + 20*s, 8*s, 6*s);
+    ctx.fillRect(x + 28*s, y + 20*s, 8*s, 6*s);
+}
+
+// Draw dog
+function drawDog(x, y, scale = 1) {
+    const s = scale;
+    ctx.fillStyle = COLORS.brown;
+    // Body
+    ctx.fillRect(x, y + 4*s, 12*s, 6*s);
+    // Head
+    ctx.fillRect(x + 10*s, y + 2*s, 6*s, 6*s);
+    // Legs
+    ctx.fillRect(x + 1*s, y + 10*s, 2*s, 4*s);
+    ctx.fillRect(x + 8*s, y + 10*s, 2*s, 4*s);
+    // Tail
+    ctx.fillRect(x - 2*s, y + 3*s, 3*s, 2*s);
+}
+
+// Draw road scene
+function drawRoadScene(scrollX = 0) {
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Stars
+    ctx.fillStyle = '#556677';
+    for (let i = 0; i < 40; i++) {
+        const sx = (i * 73 + scrollX * 0.05) % 640;
+        const sy = (i * 37) % 180;
+        ctx.fillRect(sx, sy, 2, 2);
+    }
+
+    // Ground
+    ctx.fillStyle = COLORS.brown;
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Road
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(0, 280, 640, 100);
+
+    // Road lines
+    ctx.fillStyle = COLORS.yellow;
+    for (let i = -1; i < 12; i++) {
+        const lx = (i * 80 - (scrollX % 80));
+        ctx.fillRect(lx, 325, 40, 4);
+    }
+}
+
+// Draw abandoned town
+function drawAbandonedTown() {
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(0, 0, 640, 250);
+
+    // Ominous sky
+    ctx.fillStyle = '#2a2233';
+    ctx.fillRect(0, 0, 640, 100);
+
+    // Derelict buildings
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(50, 150, 80, 100);
+    ctx.fillRect(180, 120, 100, 130);
+    ctx.fillRect(350, 140, 70, 110);
+    ctx.fillRect(480, 160, 90, 90);
+
+    // X marks on buildings
+    ctx.strokeStyle = COLORS.red;
+    ctx.lineWidth = 3;
+    // X on building 1
+    ctx.beginPath();
+    ctx.moveTo(60, 160);
+    ctx.lineTo(120, 220);
+    ctx.moveTo(120, 160);
+    ctx.lineTo(60, 220);
+    ctx.stroke();
+
+    // Ground
+    ctx.fillStyle = '#332222';
+    ctx.fillRect(0, 250, 640, 230);
+}
+
+// Draw naval base
+function drawNavalBase(empty = true) {
+    // Ocean
+    ctx.fillStyle = '#223344';
+    ctx.fillRect(0, 0, 640, 300);
+
+    // Waves
+    ctx.fillStyle = '#334455';
+    for (let i = 0; i < 10; i++) {
+        const wy = 200 + Math.sin(Date.now() / 500 + i) * 5;
+        ctx.fillRect(i * 70, wy, 50, 3);
+    }
+
+    // Shore
+    ctx.fillStyle = COLORS.gray;
+    ctx.fillRect(0, 300, 640, 180);
+
+    // Base buildings
+    ctx.fillStyle = empty ? COLORS.darkGray : COLORS.gray;
+    ctx.fillRect(100, 200, 150, 100);
+    ctx.fillRect(300, 220, 200, 80);
+
+    // Fences
+    ctx.fillStyle = COLORS.lightGray;
+    for (let i = 0; i < 25; i++) {
+        ctx.fillRect(50 + i * 25, 280, 3, 40);
+    }
+
+    // No ships
+    if (empty) {
+        // Empty dock
+        ctx.fillStyle = COLORS.brown;
+        ctx.fillRect(450, 250, 100, 20);
+    }
+}
+
+// Text box
+function drawTextBox(text, speaker = null) {
+    ctx.fillStyle = 'rgba(20, 25, 35, 0.95)';
+    ctx.fillRect(20, 380, 600, 90);
+
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 380, 600, 90);
+    ctx.strokeStyle = COLORS.blue;
+    ctx.strokeRect(24, 384, 592, 82);
+
+    if (speaker) {
+        ctx.fillStyle = COLORS.black;
+        ctx.fillRect(30, 372, speaker.length * 10 + 20, 16);
+        ctx.fillStyle = COLORS.cyan;
+        ctx.font = '14px monospace';
+        ctx.fillText(speaker, 40, 385);
+    }
+
+    ctx.fillStyle = COLORS.white;
+    ctx.font = '14px monospace';
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+        ctx.fillText(line, 40, 410 + i * 20);
+    });
+}
+
+// Menu
+function drawMenu(options, selectedIndex, title = null) {
+    const menuWidth = 340;
+    const menuHeight = options.length * 30 + 40;
+    const menuX = (640 - menuWidth) / 2;
+    const menuY = (480 - menuHeight) / 2;
+
+    ctx.fillStyle = 'rgba(10, 15, 25, 0.95)';
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+
+    if (title) {
+        ctx.fillStyle = COLORS.cyan;
+        ctx.font = '14px monospace';
+        ctx.fillText(title, menuX + 20, menuY + 25);
+    }
+
+    options.forEach((opt, i) => {
+        const optY = menuY + 50 + i * 30;
+        if (i === selectedIndex) {
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillText('>', menuX + 20, optY);
+            ctx.fillStyle = COLORS.white;
+        } else {
+            ctx.fillStyle = COLORS.gray;
+        }
+        ctx.font = '14px monospace';
+        ctx.fillText(opt, menuX + 40, optY);
+    });
+}
+
+// Scenes
+const scenes = [
+    // TITLE
+    {
+        type: 'title',
+        duration: 5000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Heartbeat line
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 240);
+            for (let x = 0; x < 640; x += 2) {
+                let y = 240;
+                const beat = (x + progress * 500) % 200;
+                if (beat > 80 && beat < 90) y = 200;
+                else if (beat > 90 && beat < 100) y = 280;
+                else if (beat > 100 && beat < 110) y = 220;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            ctx.fillStyle = COLORS.white;
+            ctx.font = '36px monospace';
+            ctx.fillText('THE PEDIATRIC WARD', 120, 180);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '14px monospace';
+            ctx.fillText('A story about what we carry', 210, 320);
+
+            if (progress > 0.5) {
+                ctx.fillStyle = COLORS.darkRed;
+                ctx.font = '12px monospace';
+                ctx.fillText('MEMPHIS - THE NIGHT THE POWER DIED', 190, 400);
+            }
+        }
+    },
+
+    // HOSPITAL INTRO
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Dr. Amara Okonkwo was working the night shift\nin pediatric oncology when the generators\nfailed for the final time.',
+        draw: (progress) => {
+            drawHospital(progress > 0.7);
+
+            // Flickering lights effect
+            if (progress > 0.5 && Math.random() > 0.7) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(0, 0, 640, 480);
+            }
+        }
+    },
+
+    // THE CHOICE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'The backup batteries gave them six hours.\nSix hours to decide who could be saved.\nSix hours to find a way out.',
+        draw: (progress) => {
+            // Dark hospital interior
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Emergency lights - red glow
+            ctx.fillStyle = 'rgba(100, 30, 30, 0.3)';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Beds with children
+            drawBed(100, 200, true, true);
+            drawBed(250, 200, true, true);
+            drawBed(400, 200, true, true);
+
+            // Dr. Okonkwo standing, deciding
+            drawDoctor(300, 280, 2);
+
+            // Clock on wall
+            ctx.fillStyle = COLORS.white;
+            ctx.beginPath();
+            ctx.arc(550, 100, 30, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(548, 75, 4, 25);
+            ctx.fillRect(548, 98, 20, 3);
+        }
+    },
+
+    // LOADING THE VEHICLES
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'She loaded every child she could save into\nwhatever vehicles she could find.\nSeven children. Three vehicles. One chance.',
+        draw: (progress) => {
+            drawHospital(true);
+
+            // Vehicles in parking lot with headlights
+            drawSchoolBus(150, 320, 1.2);
+            drawMinivan(350, 340, COLORS.blue, 1.5);
+
+            // Headlight beams
+            ctx.fillStyle = 'rgba(255, 255, 200, 0.2)';
+            ctx.beginPath();
+            ctx.moveTo(210, 330);
+            ctx.lineTo(280, 300);
+            ctx.lineTo(280, 360);
+            ctx.fill();
+
+            // People loading
+            drawDoctor(280, 310, 1.5);
+            drawChild(320, 320, COLORS.pink, 1.5);
+            drawChild(340, 322, COLORS.purple, 1.5);
+        }
+    },
+
+    // THE CONVOY
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ THE CONVOY ]',
+        options: [
+            'Hospital shuttle - medical equipment',
+            'Marcus\'s minivan - his daughter Lily',
+            'Dr. Okonkwo\'s Subaru - supplies',
+            'Nurse Dev - carrying guilt, carrying hope'
+        ],
+        autoSelect: 3,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Convoy silhouette
+            ctx.fillStyle = COLORS.darkGray;
+            drawSchoolBus(80, 100, 1);
+            drawMinivan(200, 110, COLORS.blue, 1);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(320, 108, 40, 20);
+        }
+    },
+
+    // ON THE ROAD
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'The interstate was a graveyard of vehicles.\nThey navigated by pushing cars aside,\nburning precious fuel.',
+        draw: (progress, scrollX) => {
+            drawRoadScene(scrollX);
+
+            // Abandoned cars
+            ctx.fillStyle = COLORS.darkGray;
+            for (let i = 0; i < 5; i++) {
+                const cx = (i * 150 - scrollX * 0.3) % 800;
+                ctx.fillRect(cx, 290 + (i % 2) * 40, 40, 20);
+                // Open doors
+                ctx.fillRect(cx + 35, 285 + (i % 2) * 40, 15, 5);
+            }
+
+            // Convoy moving through
+            drawSchoolBus(250, 300, 1.3);
+            drawMinivan(400, 315, COLORS.blue, 1.3);
+        }
+    },
+
+    // LILY'S SEIZURE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'MARCUS',
+        text: '"Lily! No no no- Doctor! DOCTOR!"\n\n...They used medication they could not replace.',
+        draw: (progress) => {
+            // Inside minivan - cramped, tense
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.blue;
+            ctx.fillRect(50, 100, 540, 300);
+
+            // Seats
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(80, 150, 100, 80);
+            ctx.fillRect(80, 280, 100, 80);
+
+            // Lily in distress (abstracted - just shapes)
+            ctx.fillStyle = COLORS.pink;
+            ctx.fillRect(350, 180, 60, 30);
+
+            // Marcus reaching back
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(120, 180, 20, 20);
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(140, 190, 80, 10);
+
+            // Flashing - emergency
+            if (Math.sin(progress * 20) > 0) {
+                ctx.fillStyle = 'rgba(255, 100, 100, 0.2)';
+                ctx.fillRect(0, 0, 640, 480);
+            }
+        }
+    },
+
+    // THE DOGS DECISION
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ WENDELL AND PATRICE ]',
+        options: [
+            '  Leave them - no room for dogs',
+            '> Take them all - dogs included'
+        ],
+        autoSelect: 1,
+        selectDelay: 3000,
+        draw: (progress) => {
+            drawRoadScene(0);
+
+            // Truck stop
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(200, 200, 240, 80);
+
+            // People
+            drawPerson(300, 260, COLORS.green, 2); // Wendell
+            drawPerson(340, 260, COLORS.purple, 2); // Patrice
+
+            // Dogs
+            drawDog(380, 280, 2);
+            drawDog(420, 280, 2);
+
+            // Dr. Okonkwo
+            drawDoctor(250, 260, 2);
+        }
+    },
+
+    // DOGS PROVE WORTH
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'The dogs proved their worth two days later.\nRaiders approached at night.\nThe barking gave them time to flee.',
+        draw: (progress) => {
+            // Night scene
+            ctx.fillStyle = '#0a0a15';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Convoy
+            drawSchoolBus(100, 300, 1);
+            drawMinivan(220, 310, COLORS.blue, 1);
+
+            // Dogs alert
+            drawDog(180, 330, 2);
+            drawDog(200, 335, 2);
+
+            // Distant figures (raiders)
+            ctx.fillStyle = COLORS.darkRed;
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(450 + i * 30, 310, 10, 20);
+            }
+
+            // Bark indicators
+            ctx.fillStyle = COLORS.white;
+            ctx.font = '12px monospace';
+            ctx.fillText('! ! !', 185, 320);
+        }
+    },
+
+    // OMAR'S CRISIS
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'DEV',
+        text: '"Omar needs dialysis. There is no dialysis.\nBut... Tupelo hospital might have supplies.\nThirty miles off route. Through SICKNESS zone."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Map view
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 2;
+
+            // Main route
+            ctx.beginPath();
+            ctx.moveTo(100, 300);
+            ctx.lineTo(500, 200);
+            ctx.stroke();
+
+            // Detour
+            ctx.strokeStyle = COLORS.red;
+            ctx.beginPath();
+            ctx.moveTo(250, 260);
+            ctx.lineTo(300, 350);
+            ctx.stroke();
+
+            // Labels
+            ctx.fillStyle = COLORS.green;
+            ctx.font = '12px monospace';
+            ctx.fillText('ROUTE TO ATLANTA', 350, 180);
+
+            ctx.fillStyle = COLORS.red;
+            ctx.fillText('TUPELO', 310, 370);
+            ctx.fillText('[ SICKNESS ]', 280, 390);
+
+            // Child indicator
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillText('OMAR', 220, 245);
+        }
+    },
+
+    // DETOUR CHOICE
+    {
+        type: 'menu',
+        duration: 4000,
+        title: '[ OMAR NEEDS DIALYSIS ]',
+        options: [
+            '  Keep moving - manage his decline',
+            '> Risk the detour to Tupelo'
+        ],
+        autoSelect: 1,
+        selectDelay: 2500,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Child's face (simple, not exploitative)
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(280, 180, 80, 80);
+
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(300, 210, 15, 10);
+            ctx.fillRect(345, 210, 15, 10);
+
+            // Medical readout (abstracted)
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(200, 350);
+            for (let x = 200; x < 440; x += 10) {
+                ctx.lineTo(x, 350 + Math.sin(x * 0.1) * 20);
+            }
+            ctx.stroke();
+        }
+    },
+
+    // TUPELO
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Tupelo was quiet in the wrong way.\nHouses with X marks. Doors chained shut.\nThey found supplies in a wing no one opened.',
+        draw: (progress) => {
+            drawAbandonedTown();
+
+            // Convoy entering carefully
+            drawSchoolBus(100, 300, 1);
+
+            // X marks
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 4;
+
+            // More X marks on houses
+            [100, 380, 520].forEach(bx => {
+                ctx.beginPath();
+                ctx.moveTo(bx + 10, 170);
+                ctx.lineTo(bx + 50, 210);
+                ctx.moveTo(bx + 50, 170);
+                ctx.lineTo(bx + 10, 210);
+                ctx.stroke();
+            });
+        }
+    },
+
+    // OMAR GETS ANOTHER MONTH
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'They burned their clothes afterward.\nOmar got another month.',
+        draw: (progress) => {
+            // Fire
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Burning clothes
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(280, 300, 80, 60);
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(295, 270, 50, 40);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(305, 250, 30, 30);
+
+            // Sparks
+            for (let i = 0; i < 10; i++) {
+                ctx.fillStyle = COLORS.yellow;
+                const sx = 300 + Math.sin(progress * 10 + i) * 50;
+                const sy = 200 - i * 20 - progress * 100;
+                if (sy > 100) ctx.fillRect(sx, sy, 4, 4);
+            }
+
+            // People watching
+            drawDoctor(200, 320, 2);
+            drawPerson(400, 320, COLORS.green, 2);
+        }
+    },
+
+    // THE MEDICAL CONVOY
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Outside Birmingham, they found the medical\nconvoy. Eighteen vehicles. Sixty people.\nA veterinarian. A retired army medic. No oncologist.',
+        draw: (progress, scrollX) => {
+            drawRoadScene(scrollX);
+
+            // Large convoy
+            for (let i = 0; i < 6; i++) {
+                ctx.fillStyle = [COLORS.gray, COLORS.blue, COLORS.green, COLORS.brown, COLORS.purple, COLORS.orange][i];
+                ctx.fillRect(80 + i * 90, 300 + (i % 2) * 15, 50, 25);
+            }
+
+            // Dr. Okonkwo's convoy meeting them
+            drawSchoolBus(500, 310, 0.8);
+        }
+    },
+
+    // MERGE DECISION
+    {
+        type: 'menu',
+        duration: 5000,
+        title: '[ THE LARGER CONVOY ]',
+        options: [
+            '  Merge fully - share everything',
+            '> Travel alongside - keep separate supplies',
+            '  Stay independent - move faster alone'
+        ],
+        autoSelect: 1,
+        selectDelay: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Two groups
+            ctx.fillStyle = COLORS.cyan;
+            ctx.font = '12px monospace';
+            ctx.fillText('MEDICAL CONVOY - 60 PEOPLE', 50, 150);
+
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillText('YOUR CONVOY - 12 PEOPLE', 380, 150);
+
+            // Dividing line
+            ctx.strokeStyle = COLORS.gray;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(320, 100);
+            ctx.lineTo(320, 300);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    },
+
+    // CAROLINA'S TENSION
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'CAROLINA',
+        text: '"You are hoarding supplies, Doctor.\nSixty people out here. You have antibiotics.\nWe have hungry mouths. How is that fair?"',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Two women facing off
+            drawDoctor(200, 250, 2.5); // Amara
+            drawPerson(380, 250, COLORS.brown, 2.5); // Carolina
+
+            // Tension line
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(280, 280);
+            ctx.lineTo(360, 280);
+            ctx.stroke();
+        }
+    },
+
+    // AMARA'S RESPONSE
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'DR. OKONKWO',
+        text: '"I have seven children with cancer.\nIf I share across sixty people, they die faster.\nI am not hoarding. I am triaging."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Close on Amara
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(250, 150, 140, 140);
+
+            // Eyes - determined
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(280, 200, 25, 15);
+            ctx.fillRect(335, 200, 25, 15);
+
+            // Medical cross on coat
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(310, 330, 20, 60);
+            ctx.fillRect(290, 350, 60, 20);
+        }
+    },
+
+    // BAO LEARNS
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'BAO',
+        text: '"Doctor? Can I... can I learn to help?\nReally help? I know I am just a kid.\nBut I want to be useful."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Camp scene - night
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(280, 320, 80, 40);
+
+            // Bao and Dr. Okonkwo by fire
+            drawChild(250, 290, COLORS.green, 2);
+            drawDoctor(350, 270, 2);
+
+            // Medical supplies between them
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(300, 300, 30, 15);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(308, 302, 14, 11);
+        }
+    },
+
+    // TEACHING BAO
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'DR. OKONKWO',
+        text: '"This might be pointless. We might not survive.\nBut if we do... someone needs to know.\nWatch carefully, Bao. This matters."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Teaching moment - hands on supplies
+            ctx.fillStyle = COLORS.orange;
+            // Two sets of hands
+            ctx.fillRect(280, 250, 30, 15); // Adult hands
+            ctx.fillRect(320, 260, 20, 12); // Child hands
+
+            // Medical item
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(290, 280, 60, 30);
+
+            // Light from above (knowledge transfer)
+            ctx.fillStyle = 'rgba(255, 255, 200, 0.1)';
+            ctx.beginPath();
+            ctx.moveTo(320, 0);
+            ctx.lineTo(250, 240);
+            ctx.lineTo(390, 240);
+            ctx.fill();
+        }
+    },
+
+    // THE RAIDER ATTACK
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'Two days from the coast, raiders hit.\nReal ones. Armed. Demanding tribute.\nMarcus revealed he did two tours in Afghanistan.',
+        draw: (progress) => {
+            // Battle scene - abstracted
+            ctx.fillStyle = '#1a0a0a';
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Muzzle flashes
+            if (Math.random() > 0.7) {
+                ctx.fillStyle = COLORS.yellow;
+                ctx.fillRect(Math.random() * 640, Math.random() * 300 + 100, 20, 20);
+            }
+
+            // Convoy circled
+            ctx.strokeStyle = COLORS.gray;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(320, 300, 100, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Attackers
+            ctx.fillStyle = COLORS.darkRed;
+            for (let i = 0; i < 6; i++) {
+                const angle = i * Math.PI / 3;
+                const x = 320 + Math.cos(angle) * 180;
+                const y = 300 + Math.sin(angle) * 120;
+                ctx.fillRect(x, y, 15, 25);
+            }
+        }
+    },
+
+    // MARCUS FIGHTS
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'MARCUS',
+        text: '"I do not want to do this.\nBut I will. For Lily. For all of them.\nStay down. Stay quiet. Let me work."',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Marcus silhouette
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(280, 150, 80, 150);
+
+            // Gun shape
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(340, 220, 50, 10);
+
+            // Eyes - hollow
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(300, 180, 15, 8);
+            ctx.fillRect(325, 180, 15, 8);
+
+            // Flash in distance
+            if (Math.random() > 0.6) {
+                ctx.fillStyle = COLORS.orange;
+                ctx.fillRect(500, 200, 30, 30);
+            }
+        }
+    },
+
+    // THE FIFTEEN YEAR OLD
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'NARRATOR',
+        text: 'They won. Barely.\n\nOne of the raiders, shot in the stomach, was\nmaybe fifteen years old. Dr. Okonkwo tried.\nShe could not save him.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Ground
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(0, 350, 640, 130);
+
+            // Raider on ground
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(280, 340, 80, 20);
+
+            // Dr. Okonkwo kneeling
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(250, 310, 20, 30);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(255, 295, 10, 15);
+
+            // Blood (minimal - just color on ground)
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(320, 355, 40, 10);
+
+            // He was just a kid
+            if (progress > 0.6) {
+                ctx.fillStyle = COLORS.gray;
+                ctx.font = '12px monospace';
+                ctx.fillText('He was fifteen.', 270, 420);
+            }
+        }
+    },
+
+    // MARCUS'S HANDS
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'Marcus would not look at his hands for days.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Just hands in center - not looking at them
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(260, 220, 50, 60);
+            ctx.fillRect(330, 220, 50, 60);
+
+            // Fingers
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(265 + i * 12, 200, 8, 25);
+                ctx.fillRect(335 + i * 12, 200, 8, 25);
+            }
+
+            // Looking away (implied by darkness around)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(200, 200, 240, 100);
+        }
+    },
+
+    // THE COAST
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'They reached the coast.\n\nThere were no ships. The naval base was empty.',
+        draw: (progress) => {
+            drawNavalBase(true);
+
+            // Convoy arriving
+            drawSchoolBus(100, 340, 1);
+            drawMinivan(220, 350, COLORS.blue, 1);
+
+            // People looking at empty ocean
+            for (let i = 0; i < 5; i++) {
+                drawPerson(300 + i * 40, 330, [COLORS.white, COLORS.blue, COLORS.green, COLORS.purple, COLORS.brown][i], 1.5);
+            }
+        }
+    },
+
+    // BUT...
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'But there was infrastructure. Fences.\nGenerators that could work. Clean water.\n\nThe convoy stopped running. They started building.',
+        draw: (progress) => {
+            drawNavalBase(false);
+
+            // Signs of life
+            ctx.fillStyle = COLORS.yellow;
+            // Lit windows
+            ctx.fillRect(140, 230, 20, 15);
+            ctx.fillRect(180, 240, 20, 15);
+            ctx.fillRect(340, 250, 20, 15);
+            ctx.fillRect(400, 240, 20, 15);
+
+            // People working
+            for (let i = 0; i < 4; i++) {
+                drawPerson(150 + i * 100, 320, COLORS.gray, 1.5);
+            }
+
+            // Small garden starting
+            ctx.fillStyle = COLORS.darkGreen;
+            ctx.fillRect(500, 320, 60, 40);
+            ctx.fillStyle = COLORS.green;
+            ctx.fillRect(505, 315, 5, 15);
+            ctx.fillRect(520, 318, 5, 12);
+            ctx.fillRect(540, 316, 5, 14);
+        }
+    },
+
+    // THE CLINIC
+    {
+        type: 'scene',
+        duration: 4000,
+        speaker: 'NARRATOR',
+        text: 'They built a clinic.\nDr. Okonkwo trained anyone who would learn.\nBao was her first student.',
+        draw: (progress) => {
+            // Simple clinic interior
+            ctx.fillStyle = COLORS.hospitalGreen;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Beds
+            drawBed(100, 250, false);
+            drawBed(300, 250, false);
+            drawBed(500, 250, true, true);
+
+            // Teaching
+            drawDoctor(400, 200, 2);
+            drawChild(450, 210, COLORS.green, 2);
+
+            // Red cross on wall
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(295, 80, 50, 15);
+            ctx.fillRect(310, 65, 20, 45);
+        }
+    },
+
+    // LILY
+    {
+        type: 'transition',
+        duration: 3000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '14px monospace';
+            ctx.fillText('MONTH THREE', 270, 230);
+
+            if (progress > 0.5) {
+                playSadNote();
+            }
+        }
+    },
+
+    // LILY DIES
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'NARRATOR',
+        text: 'Lily died in month three.\n\nThe medication ran out.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Empty bed, carefully lit
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(220, 200, 200, 80);
+
+            // White sheet
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(230, 210, 180, 60);
+
+            // Small form underneath (suggestion only)
+            ctx.fillStyle = COLORS.lightGray;
+            ctx.fillRect(260, 220, 120, 40);
+
+            // Single flower
+            ctx.fillStyle = COLORS.pink;
+            ctx.fillRect(400, 240, 10, 10);
+            ctx.fillStyle = COLORS.green;
+            ctx.fillRect(403, 250, 4, 20);
+
+            // Heartbeat flatline
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 350);
+            ctx.lineTo(640, 350);
+            ctx.stroke();
+        }
+    },
+
+    // MARCUS STAYS
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Marcus stayed anyway.\n\nHe helped build the clinic.\nHe never stopped working.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(0, 0, 640, 300);
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(0, 300, 640, 180);
+
+            // Marcus building
+            drawPerson(300, 260, COLORS.blue, 2.5);
+
+            // Construction
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(350, 250, 100, 80);
+            ctx.fillRect(360, 200, 80, 50);
+
+            // Hammer in hand (implied)
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(340, 280, 30, 8);
+        }
+    },
+
+    // BAO BECOMES DOCTOR
+    {
+        type: 'scene',
+        duration: 6000,
+        speaker: 'NARRATOR',
+        text: 'Bao became the settlement\'s first new doctor.\n\nA twelve-year-old who watched his friends die\nlearned to help the ones who lived.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.hospitalGreen;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Bao, older now, in white coat
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(295, 180, 50, 50);
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(280, 230, 80, 100);
+
+            // Stethoscope
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(315, 250, 10, 30);
+
+            // Patient (adult now - roles reversed)
+            drawBed(400, 280, true, false);
+
+            // Dr. Okonkwo watching from doorway
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(100, 150, 80, 200);
+            drawDoctor(115, 250, 1.5);
+        }
+    },
+
+    // THE SETTLEMENT GROWS
+    {
+        type: 'scene',
+        duration: 5000,
+        speaker: 'NARRATOR',
+        text: 'The settlement grew.\nOther convoys arrived. Some were turned away.\nSome were welcomed.',
+        draw: (progress, scrollX) => {
+            // Overhead view of settlement
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(0, 0, 640, 200);
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(0, 200, 640, 280);
+
+            // Buildings
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(100, 220, 80, 60);
+            ctx.fillRect(220, 200, 100, 80);
+            ctx.fillRect(380, 230, 60, 50);
+            ctx.fillRect(480, 210, 90, 70);
+
+            // Lit windows
+            ctx.fillStyle = COLORS.yellow;
+            for (let i = 0; i < 8; i++) {
+                ctx.fillRect(120 + i * 60, 240, 15, 12);
+            }
+
+            // Gardens
+            ctx.fillStyle = COLORS.darkGreen;
+            ctx.fillRect(100, 320, 150, 60);
+            ctx.fillStyle = COLORS.green;
+            for (let i = 0; i < 10; i++) {
+                ctx.fillRect(110 + i * 14, 310, 4, 15);
+            }
+
+            // People
+            for (let i = 0; i < 6; i++) {
+                drawPerson(200 + i * 50, 350, COLORS.gray, 1);
+            }
+        }
+    },
+
+    // FINAL SCENE - AMARA'S BURDEN
+    {
+        type: 'scene',
+        duration: 7000,
+        speaker: 'NARRATOR',
+        text: 'Dr. Okonkwo had to decide, over and over,\nwho they could save and who they could not.\n\nShe carried that weight. She carried them all.',
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Amara alone, looking out
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(400, 100, 200, 250);
+
+            // Window view - ocean
+            ctx.fillStyle = '#334455';
+            ctx.fillRect(420, 120, 160, 200);
+
+            // Amara silhouette
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(280, 200, 60, 100);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(290, 170, 40, 35);
+
+            // Weight on shoulders (implied by posture - slightly hunched)
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(270, 205, 80, 20);
+        }
+    },
+
+    // TITLE CARD END
+    {
+        type: 'title',
+        duration: 10000,
+        draw: (progress) => {
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 640, 480);
+
+            // Steady heartbeat now
+            ctx.strokeStyle = COLORS.red;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 240);
+            for (let x = 0; x < 640; x += 2) {
+                let y = 240;
+                const beat = (x + progress * 300) % 150;
+                if (beat > 60 && beat < 70) y = 210;
+                else if (beat > 70 && beat < 80) y = 270;
+                else if (beat > 80 && beat < 88) y = 225;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            ctx.fillStyle = COLORS.white;
+            ctx.font = '28px monospace';
+            ctx.fillText('THE PEDIATRIC WARD', 160, 150);
+
+            ctx.fillStyle = COLORS.gray;
+            ctx.font = '12px monospace';
+            ctx.fillText('"She carried guilt. She carried supplies."', 180, 190);
+
+            if (progress > 0.3) {
+                ctx.fillStyle = COLORS.cyan;
+                ctx.font = '11px monospace';
+                ctx.fillText('Dr. Amara Okonkwo - The one who chose', 50, 320);
+                ctx.fillText('Marcus - The father who stayed', 50, 340);
+                ctx.fillText('Lily - Gone but not forgotten', 50, 360);
+                ctx.fillText('Bao - The first new doctor', 50, 380);
+                ctx.fillText('Dev - She carried guilt, she carried hope', 50, 400);
+            }
+
+            if (progress > 0.5) {
+                ctx.fillStyle = COLORS.gray;
+                ctx.fillText('Wendell & Patrice - The dogs saved them all', 350, 320);
+                ctx.fillText('Carolina - The vet who learned surgery', 350, 340);
+                ctx.fillText('Omar - He got another month', 350, 360);
+                ctx.fillText('The fifteen-year-old - No name. Just a kid.', 350, 380);
+            }
+
+            if (progress > 0.7) {
+                ctx.fillStyle = COLORS.yellow;
+                ctx.font = '10px monospace';
+                ctx.fillText('A STORY FROM THE AUTOGANG UNIVERSE', 220, 440);
+            }
+
+            if (progress > 0.85) {
+                ctx.fillStyle = COLORS.green;
+                ctx.fillText('Press R to replay', 270, 460);
+            }
+        }
+    }
+];
+
+// Game state
+let currentScene = 0;
+let sceneStartTime = 0;
+let scrollX = 0;
+let gameStarted = false;
+let menuSelection = 0;
+let selectionMade = false;
+
+function gameLoop(timestamp) {
+    if (!gameStarted) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    const scene = scenes[currentScene];
+    const elapsed = timestamp - sceneStartTime;
+    const progress = Math.min(elapsed / scene.duration, 1);
+
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(0, 0, 640, 480);
+
+    scrollX += 1.5;
+
+    scene.draw(progress, scrollX);
+
+    if (scene.type === 'scene' && scene.text) {
+        drawTextBox(scene.text, scene.speaker);
+    }
+
+    if (scene.type === 'menu') {
+        drawMenu(scene.options, menuSelection, scene.title);
+
+        if (!selectionMade && scene.selectDelay && elapsed > scene.selectDelay) {
+            if (menuSelection < scene.autoSelect) {
+                menuSelection++;
+                playMenuMove();
+            } else if (menuSelection > scene.autoSelect) {
+                menuSelection--;
+                playMenuMove();
+            } else {
+                selectionMade = true;
+                playSelectBeep();
+            }
+        } else if (!selectionMade && !scene.selectDelay) {
+            menuSelection = scene.autoSelect || 0;
+        }
+    }
+
+    if (scene.type === 'scene' && Math.random() > 0.88) {
+        playTextBeep();
+    }
+
+    if (progress >= 1) {
+        currentScene++;
+        sceneStartTime = timestamp;
+        menuSelection = 0;
+        selectionMade = false;
+
+        if (currentScene >= scenes.length) {
+            currentScene = scenes.length - 1;
+            stopMusic();
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+function startGame() {
+    if (gameStarted) return;
+    initAudio();
+    gameStarted = true;
+    sceneStartTime = performance.now();
+    startScreen.style.display = 'none';
+    startMusic();
+}
+
+document.addEventListener('keydown', (e) => {
+    if (!gameStarted) {
+        startGame();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        currentScene = 0;
+        sceneStartTime = performance.now();
+        startMusic();
+    }
+});
+
+startScreen.addEventListener('click', startGame);
+
+requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
