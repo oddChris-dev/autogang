@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - Full Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #222;
+            overflow: hidden;
+        }
+        #game-canvas, #vhs-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #vhs-canvas { z-index: 100; pointer-events: none; }
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #888;
+            z-index: 200;
+            cursor: pointer;
+        }
+        #start-screen h1 {
+            font-size: 32px;
+            color: #c33;
+            text-shadow: 3px 3px 0 #300;
+            margin-bottom: 30px;
+        }
+        .blink { animation: blink 1s infinite; }
+        @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <canvas id="vhs-canvas" width="640" height="480"></canvas>
+        <div id="start-screen">
+            <h1>AUTOGANG</h1>
+            <p style="color:#666;margin-bottom:20px">OREGON TRAIL MEETS MAD MAX</p>
+            <p class="blink">[ PRESS SPACE OR CLICK ]</p>
+            <p style="color:#444;margin-top:40px;font-size:10px">ARROW KEYS TO MOVE | SPACE TO SELECT/SHOOT</p>
+        </div>
+    </div>
+<script>
+// ===================================================
+// AUTOGANG - FULL DEMO WITH VHS EFFECTS & MINI-GAMES
+// ===================================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const vhsCanvas = document.getElementById('vhs-canvas');
+const vhsCtx = vhsCanvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+let audioCtx = null;
+const keys = {};
+
+// ==================== AUDIO ====================
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playTone(freq, dur, type='square', vol=0.1) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+}
+
+function playSelect() { playTone(600, 0.05); setTimeout(() => playTone(800, 0.08), 50); }
+function playMove() { playTone(300, 0.03); }
+function playShoot() { playTone(150, 0.1, 'sawtooth', 0.15); playTone(100, 0.15, 'square', 0.1); }
+function playHit() { playTone(80, 0.2, 'sawtooth', 0.2); }
+function playEngine() { playTone(60 + Math.random()*20, 0.1, 'triangle', 0.03); }
+function playText() { playTone(200 + Math.random()*100, 0.02, 'square', 0.05); }
+
+// Music
+let musicPlaying = false;
+let musicInterval = null;
+const bass = [110,110,98,98,82,82,98,110];
+const mel = [330,294,330,392,440,392,330,294];
+let noteIdx = 0;
+
+function startMusic() {
+    if (musicPlaying) return;
+    musicPlaying = true;
+    musicInterval = setInterval(() => {
+        if (!musicPlaying) return;
+        playTone(bass[noteIdx % 8], 0.2, 'triangle', 0.04);
+        if (noteIdx % 2 === 0) playTone(mel[(noteIdx/2) % 8], 0.15, 'square', 0.02);
+        noteIdx++;
+    }, 250);
+}
+function stopMusic() { musicPlaying = false; clearInterval(musicInterval); }
+
+// ==================== VHS EFFECTS ====================
+let vhsTrackingOffset = 0;
+let vhsTrackingProblem = false;
+let vhsTrackingTimer = 0;
+let vhsNoiseLines = [];
+
+function updateVHS() {
+    // Random tracking problems
+    if (Math.random() < 0.002) {
+        vhsTrackingProblem = true;
+        vhsTrackingTimer = 30 + Math.random() * 60;
+    }
+    if (vhsTrackingProblem) {
+        vhsTrackingOffset = Math.sin(Date.now() / 50) * 20 + (Math.random() - 0.5) * 10;
+        vhsTrackingTimer--;
+        if (vhsTrackingTimer <= 0) {
+            vhsTrackingProblem = false;
+            vhsTrackingOffset = 0;
+        }
+    }
+
+    // Generate noise lines
+    vhsNoiseLines = [];
+    for (let i = 0; i < 3; i++) {
+        if (Math.random() < 0.3) {
+            vhsNoiseLines.push({
+                y: Math.random() * 480,
+                height: 1 + Math.random() * 3,
+                offset: (Math.random() - 0.5) * 30,
+                alpha: 0.3 + Math.random() * 0.5
+            });
+        }
+    }
+}
+
+function drawVHS() {
+    vhsCtx.clearRect(0, 0, 640, 480);
+
+    // Scanlines
+    vhsCtx.fillStyle = 'rgba(0,0,0,0.15)';
+    for (let y = 0; y < 480; y += 2) {
+        vhsCtx.fillRect(0, y, 640, 1);
+    }
+
+    // Tracking displacement effect
+    if (vhsTrackingProblem) {
+        const imgData = ctx.getImageData(0, 0, 640, 480);
+        vhsCtx.putImageData(imgData, vhsTrackingOffset, 0);
+
+        // Glitch bands
+        for (let i = 0; i < 5; i++) {
+            const y = (Date.now() / 10 + i * 100) % 480;
+            vhsCtx.fillStyle = `rgba(255,255,255,${0.1 + Math.random() * 0.2})`;
+            vhsCtx.fillRect(0, y, 640, 2 + Math.random() * 4);
+        }
+    }
+
+    // Horizontal noise lines
+    vhsNoiseLines.forEach(line => {
+        vhsCtx.fillStyle = `rgba(255,255,255,${line.alpha})`;
+        vhsCtx.fillRect(line.offset, line.y, 640, line.height);
+    });
+
+    // Color bleeding / chromatic aberration
+    vhsCtx.globalCompositeOperation = 'screen';
+    vhsCtx.fillStyle = 'rgba(255,0,0,0.02)';
+    vhsCtx.fillRect(2, 0, 640, 480);
+    vhsCtx.fillStyle = 'rgba(0,255,255,0.02)';
+    vhsCtx.fillRect(-2, 0, 640, 480);
+    vhsCtx.globalCompositeOperation = 'source-over';
+
+    // Vignette
+    const grad = vhsCtx.createRadialGradient(320, 240, 100, 320, 240, 400);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.4)');
+    vhsCtx.fillStyle = grad;
+    vhsCtx.fillRect(0, 0, 640, 480);
+
+    // Tape wear at edges
+    vhsCtx.fillStyle = 'rgba(0,0,0,0.3)';
+    vhsCtx.fillRect(0, 0, 640, 8);
+    vhsCtx.fillRect(0, 472, 640, 8);
+
+    // Static noise overlay
+    if (Math.random() < 0.1) {
+        for (let i = 0; i < 50; i++) {
+            vhsCtx.fillStyle = `rgba(255,255,255,${Math.random() * 0.3})`;
+            vhsCtx.fillRect(Math.random() * 640, Math.random() * 480, 1 + Math.random() * 3, 1);
+        }
+    }
+
+    // "PLAY" indicator
+    vhsCtx.fillStyle = '#fff';
+    vhsCtx.font = '10px monospace';
+    if (Math.floor(Date.now() / 500) % 2) {
+        vhsCtx.fillText('▶ PLAY', 560, 25);
+    }
+
+    // Timecode
+    const mins = Math.floor((Date.now() / 1000) % 60);
+    const secs = Math.floor((Date.now() / 100) % 100);
+    vhsCtx.fillText(`00:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`, 20, 25);
+}
+
+// ==================== PORTRAIT DRAWING ====================
+function drawPortrait(x, y, char, scale=1) {
+    const s = scale * 4;
+    const c = CHARACTERS[char] || CHARACTERS.generic;
+
+    // Face background
+    ctx.fillStyle = c.skin;
+    ctx.fillRect(x, y, 24*s, 28*s);
+
+    // Hair
+    ctx.fillStyle = c.hair;
+    ctx.fillRect(x, y, 24*s, 8*s);
+    if (c.hairStyle === 'long') {
+        ctx.fillRect(x, y + 8*s, 4*s, 12*s);
+        ctx.fillRect(x + 20*s, y + 8*s, 4*s, 12*s);
+    } else if (c.hairStyle === 'bald') {
+        ctx.fillStyle = c.skin;
+        ctx.fillRect(x + 4*s, y + 2*s, 16*s, 6*s);
+    }
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 5*s, y + 10*s, 5*s, 4*s);
+    ctx.fillRect(x + 14*s, y + 10*s, 5*s, 4*s);
+    ctx.fillStyle = c.eyes;
+    ctx.fillRect(x + 7*s, y + 11*s, 3*s, 3*s);
+    ctx.fillRect(x + 16*s, y + 11*s, 3*s, 3*s);
+
+    // Expression
+    if (c.expression === 'angry') {
+        ctx.fillStyle = c.skin;
+        ctx.fillRect(x + 4*s, y + 9*s, 6*s, 2*s);
+        ctx.fillRect(x + 14*s, y + 9*s, 6*s, 2*s);
+    }
+
+    // Nose
+    ctx.fillStyle = c.skinShadow;
+    ctx.fillRect(x + 11*s, y + 14*s, 2*s, 4*s);
+
+    // Mouth
+    ctx.fillStyle = c.expression === 'angry' ? '#633' : '#a66';
+    ctx.fillRect(x + 8*s, y + 20*s, 8*s, 2*s);
+
+    // Clothing hint
+    ctx.fillStyle = c.clothes;
+    ctx.fillRect(x, y + 26*s, 24*s, 6*s);
+
+    // Scars, etc
+    if (c.scar) {
+        ctx.fillStyle = '#a88';
+        ctx.fillRect(x + 16*s, y + 12*s, 1*s, 8*s);
+    }
+}
+
+const CHARACTERS = {
+    luis: { skin: '#c97', skinShadow: '#a75', hair: '#222', hairStyle: 'short', eyes: '#432', clothes: '#833', expression: 'neutral' },
+    chen: { skin: '#db9', skinShadow: '#b97', hair: '#111', hairStyle: 'short', eyes: '#321', clothes: '#446', expression: 'neutral' },
+    yolanda: { skin: '#a86', skinShadow: '#864', hair: '#111', hairStyle: 'long', eyes: '#321', clothes: '#648', expression: 'neutral' },
+    dustin: { skin: '#da9', skinShadow: '#b87', hair: '#654', hairStyle: 'short', eyes: '#543', clothes: '#555', expression: 'neutral' },
+    raider: { skin: '#b97', skinShadow: '#975', hair: '#333', hairStyle: 'bald', eyes: '#222', clothes: '#433', expression: 'angry', scar: true },
+    merchant: { skin: '#c97', skinShadow: '#a75', hair: '#555', hairStyle: 'short', eyes: '#543', clothes: '#574', expression: 'neutral' },
+    survivor: { skin: '#da9', skinShadow: '#b87', hair: '#432', hairStyle: 'long', eyes: '#543', clothes: '#654', expression: 'neutral' },
+    generic: { skin: '#c97', skinShadow: '#a75', hair: '#333', hairStyle: 'short', eyes: '#333', clothes: '#555', expression: 'neutral' }
+};
+
+// ==================== CUTSCENE SYSTEM ====================
+let cutsceneActive = false;
+let cutsceneData = null;
+let cutsceneLineIndex = 0;
+let cutsceneCharIndex = 0;
+let cutsceneChoice = 0;
+let cutsceneTextTimer = 0;
+let cutsceneWaitingForChoice = false;
+let cutsceneCallback = null;
+
+function startCutscene(data, callback) {
+    cutsceneActive = true;
+    cutsceneData = data;
+    cutsceneLineIndex = 0;
+    cutsceneCharIndex = 0;
+    cutsceneChoice = 0;
+    cutsceneWaitingForChoice = false;
+    cutsceneCallback = callback;
+}
+
+function updateCutscene() {
+    if (!cutsceneActive) return false;
+
+    const line = cutsceneData.lines[cutsceneLineIndex];
+    if (!line) {
+        cutsceneActive = false;
+        if (cutsceneCallback) cutsceneCallback(cutsceneData.result);
+        return false;
+    }
+
+    // Text typing
+    if (!cutsceneWaitingForChoice && cutsceneCharIndex < line.text.length) {
+        cutsceneTextTimer++;
+        if (cutsceneTextTimer > 2) {
+            cutsceneCharIndex++;
+            cutsceneTextTimer = 0;
+            if (Math.random() > 0.5) playText();
+        }
+    }
+
+    // Check for choices
+    if (line.choices && cutsceneCharIndex >= line.text.length) {
+        cutsceneWaitingForChoice = true;
+    }
+
+    return true;
+}
+
+function drawCutscene() {
+    if (!cutsceneActive) return;
+
+    const line = cutsceneData.lines[cutsceneLineIndex];
+    if (!line) return;
+
+    // Background scene
+    if (line.bg) line.bg();
+
+    // Portrait box
+    const portraitSide = line.side || 'left';
+    const px = portraitSide === 'left' ? 30 : 490;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(px - 5, 200, 130, 140);
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px - 5, 200, 130, 140);
+
+    drawPortrait(px, 205, line.char || 'generic', 1);
+
+    // Name plate
+    ctx.fillStyle = '#000';
+    ctx.fillRect(px - 5, 320, 130, 20);
+    ctx.fillStyle = '#fc6';
+    ctx.font = '12px monospace';
+    ctx.fillText(line.name || 'UNKNOWN', px + 5, 335);
+
+    // Dialog box
+    ctx.fillStyle = 'rgba(0,0,20,0.9)';
+    ctx.fillRect(20, 380, 600, 90);
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 380, 600, 90);
+    ctx.strokeStyle = '#444';
+    ctx.strokeRect(24, 384, 592, 82);
+
+    // Dialog text
+    ctx.fillStyle = '#ddd';
+    ctx.font = '14px monospace';
+    const displayText = line.text.substring(0, cutsceneCharIndex);
+    const lines = displayText.split('\n');
+    lines.forEach((l, i) => ctx.fillText(l, 40, 405 + i * 18));
+
+    // Choices
+    if (cutsceneWaitingForChoice && line.choices) {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(400, 280, 220, line.choices.length * 28 + 20);
+        ctx.strokeStyle = '#6a6';
+        ctx.strokeRect(400, 280, 220, line.choices.length * 28 + 20);
+
+        line.choices.forEach((choice, i) => {
+            const cy = 300 + i * 28;
+            if (i === cutsceneChoice) {
+                ctx.fillStyle = '#6a6';
+                ctx.fillText('▶', 410, cy);
+                ctx.fillStyle = '#fff';
+            } else {
+                ctx.fillStyle = '#888';
+            }
+            ctx.fillText(choice.text, 430, cy);
+        });
+    }
+
+    // Continue indicator
+    if (!cutsceneWaitingForChoice && cutsceneCharIndex >= line.text.length) {
+        if (Math.floor(Date.now() / 300) % 2) {
+            ctx.fillStyle = '#888';
+            ctx.fillText('▼', 600, 460);
+        }
+    }
+}
+
+function handleCutsceneInput(key) {
+    if (!cutsceneActive) return;
+
+    const line = cutsceneData.lines[cutsceneLineIndex];
+
+    if (cutsceneWaitingForChoice && line.choices) {
+        if (key === 'ArrowUp') {
+            cutsceneChoice = Math.max(0, cutsceneChoice - 1);
+            playMove();
+        } else if (key === 'ArrowDown') {
+            cutsceneChoice = Math.min(line.choices.length - 1, cutsceneChoice + 1);
+            playMove();
+        } else if (key === ' ') {
+            playSelect();
+            cutsceneData.result = line.choices[cutsceneChoice].value;
+            cutsceneWaitingForChoice = false;
+            cutsceneLineIndex++;
+            cutsceneCharIndex = 0;
+        }
+    } else if (key === ' ') {
+        if (cutsceneCharIndex < line.text.length) {
+            cutsceneCharIndex = line.text.length;
+        } else {
+            cutsceneLineIndex++;
+            cutsceneCharIndex = 0;
+            cutsceneChoice = 0;
+            playSelect();
+        }
+    }
+}
+
+// ==================== TOP-DOWN EXPLORATION ====================
+const exploration = {
+    playerX: 300,
+    playerY: 350,
+    playerAngle: 0,
+    speed: 0,
+    mapObjects: [],
+    npcs: [],
+    interactTarget: null,
+    fuel: 75,
+    money: 50,
+    crew: ['Luis', 'Chen'],
+    inventory: ['Wrench', 'Medkit']
+};
+
+function initExploration() {
+    // Create map objects - broken cars, trailers, tents
+    exploration.mapObjects = [];
+
+    // Broken vehicles
+    for (let i = 0; i < 15; i++) {
+        exploration.mapObjects.push({
+            type: 'broken_car',
+            x: 100 + Math.random() * 440,
+            y: 50 + Math.random() * 250,
+            color: ['#533', '#343', '#334', '#443', '#353'][Math.floor(Math.random() * 5)],
+            rot: Math.random() * 0.5 - 0.25
+        });
+    }
+
+    // Trailers
+    for (let i = 0; i < 5; i++) {
+        exploration.mapObjects.push({
+            type: 'trailer',
+            x: 80 + Math.random() * 480,
+            y: 50 + Math.random() * 200,
+            color: '#554'
+        });
+    }
+
+    // Tents
+    for (let i = 0; i < 8; i++) {
+        exploration.mapObjects.push({
+            type: 'tent',
+            x: 60 + Math.random() * 520,
+            y: 40 + Math.random() * 200,
+            color: ['#446', '#464', '#644'][Math.floor(Math.random() * 3)]
+        });
+    }
+
+    // Barrels/fires
+    for (let i = 0; i < 6; i++) {
+        exploration.mapObjects.push({
+            type: 'barrel_fire',
+            x: 100 + Math.random() * 440,
+            y: 60 + Math.random() * 220
+        });
+    }
+
+    // NPCs
+    exploration.npcs = [
+        { x: 200, y: 150, char: 'merchant', name: 'SAL THE TRADER', type: 'shop' },
+        { x: 450, y: 100, char: 'survivor', name: 'MAYA', type: 'recruit' },
+        { x: 350, y: 200, char: 'generic', name: 'OLD PETE', type: 'info' }
+    ];
+}
+
+function updateExploration() {
+    // Player movement
+    if (keys['ArrowUp']) exploration.speed = Math.min(exploration.speed + 0.2, 3);
+    else if (keys['ArrowDown']) exploration.speed = Math.max(exploration.speed - 0.15, -1.5);
+    else exploration.speed *= 0.95;
+
+    if (keys['ArrowLeft']) exploration.playerAngle -= 0.05;
+    if (keys['ArrowRight']) exploration.playerAngle += 0.05;
+
+    if (Math.abs(exploration.speed) > 0.5 && Math.random() > 0.9) playEngine();
+
+    exploration.playerX += Math.sin(exploration.playerAngle) * exploration.speed;
+    exploration.playerY -= Math.cos(exploration.playerAngle) * exploration.speed;
+
+    // Bounds
+    exploration.playerX = Math.max(30, Math.min(610, exploration.playerX));
+    exploration.playerY = Math.max(30, Math.min(450, exploration.playerY));
+
+    // Fuel consumption
+    if (Math.abs(exploration.speed) > 0.5) {
+        exploration.fuel -= 0.01;
+    }
+
+    // Check NPC proximity
+    exploration.interactTarget = null;
+    exploration.npcs.forEach(npc => {
+        const dx = npc.x - exploration.playerX;
+        const dy = npc.y - exploration.playerY;
+        if (Math.sqrt(dx*dx + dy*dy) < 40) {
+            exploration.interactTarget = npc;
+        }
+    });
+}
+
+function drawExploration() {
+    // Ground
+    ctx.fillStyle = '#2a2a22';
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Dirt texture
+    ctx.fillStyle = '#252520';
+    for (let i = 0; i < 100; i++) {
+        ctx.fillRect((i * 73) % 640, (i * 47) % 480, 3, 3);
+    }
+
+    // Road
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, 320, 640, 80);
+    ctx.fillStyle = '#444';
+    ctx.fillRect(0, 355, 640, 10);
+
+    // Map objects
+    exploration.mapObjects.forEach(obj => {
+        if (obj.type === 'broken_car') {
+            ctx.save();
+            ctx.translate(obj.x, obj.y);
+            ctx.rotate(obj.rot);
+            ctx.fillStyle = obj.color;
+            ctx.fillRect(-15, -8, 30, 16);
+            ctx.fillRect(-10, -12, 20, 6);
+            // Broken windows
+            ctx.fillStyle = '#223';
+            ctx.fillRect(-8, -11, 6, 4);
+            ctx.fillRect(2, -11, 6, 4);
+            ctx.restore();
+        } else if (obj.type === 'trailer') {
+            ctx.fillStyle = obj.color;
+            ctx.fillRect(obj.x - 25, obj.y - 12, 50, 24);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(obj.x - 20, obj.y - 8, 8, 8);
+            ctx.fillRect(obj.x + 5, obj.y - 8, 8, 8);
+        } else if (obj.type === 'tent') {
+            ctx.fillStyle = obj.color;
+            ctx.beginPath();
+            ctx.moveTo(obj.x, obj.y - 15);
+            ctx.lineTo(obj.x - 15, obj.y + 10);
+            ctx.lineTo(obj.x + 15, obj.y + 10);
+            ctx.fill();
+        } else if (obj.type === 'barrel_fire') {
+            ctx.fillStyle = '#333';
+            ctx.fillRect(obj.x - 5, obj.y - 5, 10, 12);
+            // Fire
+            ctx.fillStyle = '#f73';
+            ctx.fillRect(obj.x - 3, obj.y - 10, 6, 8);
+            ctx.fillStyle = '#fc5';
+            ctx.fillRect(obj.x - 2, obj.y - 8, 4, 5);
+        }
+    });
+
+    // NPCs
+    exploration.npcs.forEach(npc => {
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(npc.x - 6, npc.y + 8, 12, 4);
+
+        // Body
+        const c = CHARACTERS[npc.char];
+        ctx.fillStyle = c.clothes;
+        ctx.fillRect(npc.x - 5, npc.y - 5, 10, 14);
+        // Head
+        ctx.fillStyle = c.skin;
+        ctx.fillRect(npc.x - 4, npc.y - 12, 8, 8);
+        ctx.fillStyle = c.hair;
+        ctx.fillRect(npc.x - 4, npc.y - 12, 8, 3);
+
+        // Interaction indicator
+        if (exploration.interactTarget === npc) {
+            ctx.fillStyle = '#ff0';
+            ctx.font = '10px monospace';
+            ctx.fillText('▼', npc.x - 3, npc.y - 20);
+            ctx.fillText(npc.name, npc.x - npc.name.length * 3, npc.y - 28);
+        }
+    });
+
+    // Player vehicle
+    ctx.save();
+    ctx.translate(exploration.playerX, exploration.playerY);
+    ctx.rotate(exploration.playerAngle);
+    // Car body
+    ctx.fillStyle = '#944';
+    ctx.fillRect(-12, -20, 24, 40);
+    ctx.fillRect(-8, -25, 16, 8);
+    // Windows
+    ctx.fillStyle = '#68a';
+    ctx.fillRect(-6, -23, 5, 5);
+    ctx.fillRect(1, -23, 5, 5);
+    // Headlights
+    ctx.fillStyle = '#ff8';
+    ctx.fillRect(-8, -20, 4, 3);
+    ctx.fillRect(4, -20, 4, 3);
+    ctx.restore();
+
+    // HUD
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(10, 10, 180, 80);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(10, 10, 180, 80);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '11px monospace';
+    ctx.fillText('FUEL:', 20, 28);
+    ctx.fillStyle = exploration.fuel > 25 ? '#5a5' : '#a55';
+    ctx.fillRect(60, 18, exploration.fuel, 12);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(60, 18, 100, 12);
+
+    ctx.fillStyle = '#cc6';
+    ctx.fillText(`MONEY: $${exploration.money}`, 20, 48);
+    ctx.fillStyle = '#888';
+    ctx.fillText(`CREW: ${exploration.crew.length}`, 20, 63);
+    ctx.fillText(`ITEMS: ${exploration.inventory.length}`, 20, 78);
+
+    // Interact prompt
+    if (exploration.interactTarget) {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(220, 420, 200, 30);
+        ctx.strokeStyle = '#6a6';
+        ctx.strokeRect(220, 420, 200, 30);
+        ctx.fillStyle = '#6a6';
+        ctx.font = '12px monospace';
+        ctx.fillText('[ SPACE ] to interact', 250, 440);
+    }
+
+    // Location label
+    ctx.fillStyle = '#654';
+    ctx.font = '14px monospace';
+    ctx.fillText('DUSTY FLATS ENCAMPMENT', 420, 25);
+}
+
+// ==================== SPY HUNTER CHASE ====================
+const chase = {
+    playerX: 320,
+    playerLane: 1,
+    speed: 5,
+    roadOffset: 0,
+    enemies: [],
+    bullets: [],
+    health: 100,
+    enemiesDestroyed: 0,
+    distance: 0,
+    spawnTimer: 0
+};
+
+function initChase() {
+    chase.playerX = 320;
+    chase.playerLane = 1;
+    chase.speed = 5;
+    chase.enemies = [];
+    chase.bullets = [];
+    chase.health = 100;
+    chase.enemiesDestroyed = 0;
+    chase.distance = 0;
+}
+
+function updateChase() {
+    // Player movement
+    if (keys['ArrowLeft']) chase.playerX = Math.max(150, chase.playerX - 5);
+    if (keys['ArrowRight']) chase.playerX = Math.min(490, chase.playerX + 5);
+
+    // Scroll road
+    chase.roadOffset = (chase.roadOffset + chase.speed) % 100;
+    chase.distance += chase.speed / 10;
+
+    // Spawn enemies
+    chase.spawnTimer++;
+    if (chase.spawnTimer > 60) {
+        chase.spawnTimer = 0;
+        chase.enemies.push({
+            x: 150 + Math.random() * 340,
+            y: -50,
+            type: Math.random() > 0.5 ? 'chaser' : 'rammer',
+            health: 2
+        });
+    }
+
+    // Update enemies
+    chase.enemies.forEach(e => {
+        e.y += chase.speed * 0.7;
+
+        // AI
+        if (e.type === 'chaser') {
+            // Try to get behind and shoot
+            if (e.y < chase.playerY - 50) e.y += 2;
+        } else {
+            // Rammer - aim at player
+            if (e.x < chase.playerX - 10) e.x += 2;
+            else if (e.x > chase.playerX + 10) e.x -= 2;
+        }
+
+        // Collision with player
+        if (e.y > 350 && e.y < 420 && Math.abs(e.x - chase.playerX) < 30) {
+            chase.health -= 1;
+            playHit();
+        }
+    });
+
+    // Remove off-screen enemies
+    chase.enemies = chase.enemies.filter(e => e.y < 500 && e.health > 0);
+
+    // Update bullets
+    chase.bullets.forEach(b => {
+        b.y -= 15;
+
+        // Check enemy hits
+        chase.enemies.forEach(e => {
+            if (b.y < e.y + 20 && b.y > e.y - 20 && Math.abs(b.x - e.x) < 20) {
+                e.health--;
+                b.y = -100;
+                playHit();
+                if (e.health <= 0) chase.enemiesDestroyed++;
+            }
+        });
+    });
+
+    chase.bullets = chase.bullets.filter(b => b.y > -10);
+
+    // Engine sound
+    if (Math.random() > 0.9) playEngine();
+}
+
+function drawChase() {
+    // Sky gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 200);
+    skyGrad.addColorStop(0, '#234');
+    skyGrad.addColorStop(1, '#456');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 640, 200);
+
+    // Ground
+    ctx.fillStyle = '#543';
+    ctx.fillRect(0, 200, 640, 280);
+
+    // Road (pseudo-3D)
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(200, 480);
+    ctx.lineTo(440, 480);
+    ctx.lineTo(370, 200);
+    ctx.lineTo(270, 200);
+    ctx.fill();
+
+    // Road lines
+    ctx.fillStyle = '#666';
+    for (let i = 0; i < 10; i++) {
+        const yBase = 200 + (i * 30 + chase.roadOffset) % 300;
+        const scale = (yBase - 200) / 280;
+        const cx = 320;
+        const w = 5 + scale * 10;
+        ctx.fillRect(cx - w/2, yBase, w, 15 + scale * 10);
+    }
+
+    // Side lines
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(200, 480);
+    ctx.lineTo(270, 200);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(440, 480);
+    ctx.lineTo(370, 200);
+    ctx.stroke();
+
+    // Enemies
+    chase.enemies.forEach(e => {
+        const scale = Math.max(0.3, (e.y - 100) / 400);
+        const w = 40 * scale;
+        const h = 60 * scale;
+
+        ctx.fillStyle = e.type === 'chaser' ? '#633' : '#363';
+        ctx.fillRect(e.x - w/2, e.y - h/2, w, h);
+        ctx.fillStyle = '#222';
+        ctx.fillRect(e.x - w/3, e.y - h/3, w * 0.6, h * 0.3);
+
+        // Damage indicator
+        if (e.health < 2) {
+            ctx.fillStyle = '#f80';
+            ctx.fillRect(e.x - 5, e.y - 10, 10, 10);
+        }
+    });
+
+    // Bullets
+    ctx.fillStyle = '#ff0';
+    chase.bullets.forEach(b => {
+        ctx.fillRect(b.x - 2, b.y - 8, 4, 16);
+    });
+
+    // Player vehicle
+    ctx.fillStyle = '#a44';
+    ctx.fillRect(chase.playerX - 25, 380, 50, 70);
+    ctx.fillStyle = '#722';
+    ctx.fillRect(chase.playerX - 20, 360, 40, 25);
+    ctx.fillStyle = '#68a';
+    ctx.fillRect(chase.playerX - 15, 365, 12, 15);
+    ctx.fillRect(chase.playerX + 3, 365, 12, 15);
+    // Gun
+    ctx.fillStyle = '#555';
+    ctx.fillRect(chase.playerX - 3, 355, 6, 15);
+
+    // Muzzle flash
+    if (chase.bullets.length > 0 && chase.bullets[chase.bullets.length - 1].y > 340) {
+        ctx.fillStyle = '#ff0';
+        ctx.beginPath();
+        ctx.arc(chase.playerX, 350, 10, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // HUD
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(10, 10, 200, 60);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(10, 10, 200, 60);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '12px monospace';
+    ctx.fillText('HULL:', 20, 30);
+    ctx.fillStyle = chase.health > 30 ? '#5a5' : '#a55';
+    ctx.fillRect(70, 18, chase.health, 14);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(70, 18, 100, 14);
+
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`DESTROYED: ${chase.enemiesDestroyed}`, 20, 50);
+    ctx.fillText(`DISTANCE: ${Math.floor(chase.distance)}m`, 20, 65);
+
+    // Warning
+    ctx.fillStyle = '#f44';
+    ctx.font = '16px monospace';
+    ctx.fillText('⚠ RAIDERS PURSUING', 420, 30);
+
+    // Controls reminder
+    ctx.fillStyle = '#666';
+    ctx.font = '10px monospace';
+    ctx.fillText('← → STEER | SPACE SHOOT', 420, 50);
+}
+
+function shootChase() {
+    chase.bullets.push({ x: chase.playerX, y: 350 });
+    playShoot();
+}
+
+// ==================== GAME STATE ====================
+let gameState = 'title';
+let gameStarted = false;
+let stateTimer = 0;
+let demoSection = 0;
+
+const demoCutscenes = [
+    // Intro
+    {
+        lines: [
+            { char: 'luis', name: 'LUIS MACHADO', side: 'left',
+              text: 'We got a job. Settlement outside Fredericksburg\nneeds an ambulance fixed. Classic trade work.',
+              bg: () => { ctx.fillStyle = '#221a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'chen', name: 'CHEN', side: 'right',
+              text: 'How far out? And what\'s the territory like?',
+              bg: () => { ctx.fillStyle = '#221a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'luis', name: 'LUIS', side: 'left',
+              text: 'Sixty miles. Should be clear, but...\nYou know how it is out there.',
+              choices: [
+                { text: 'Let\'s move fast, no stops', value: 'fast' },
+                { text: 'Take it slow, scout ahead', value: 'slow' },
+                { text: 'Ask for more details', value: 'ask' }
+              ],
+              bg: () => { ctx.fillStyle = '#221a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'yolanda', name: 'YOLANDA', side: 'right',
+              text: 'I\'ll handle the negotiation when we get there.\nJust get us there in one piece.',
+              bg: () => { ctx.fillStyle = '#221a15'; ctx.fillRect(0,0,640,480); }
+            }
+        ]
+    },
+    // After exploration
+    {
+        lines: [
+            { char: 'merchant', name: 'SAL', side: 'right',
+              text: 'You\'re with THE SHOP, ain\'t ya?\nI can tell by the tow truck.',
+              bg: () => { ctx.fillStyle = '#1a1a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'luis', name: 'LUIS', side: 'left',
+              text: 'That\'s right. Looking for supplies and maybe\nsome intel on the road ahead.',
+              choices: [
+                { text: 'What have you got for trade?', value: 'trade' },
+                { text: 'Any trouble we should know about?', value: 'intel' },
+                { text: 'Know anyone looking for work?', value: 'recruit' }
+              ],
+              bg: () => { ctx.fillStyle = '#1a1a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'merchant', name: 'SAL', side: 'right',
+              text: 'Raiders been spotted south of here.\nCall themselves THE CLAIM. Mean bunch.\nYou might wanna take the long way.',
+              bg: () => { ctx.fillStyle = '#1a1a15'; ctx.fillRect(0,0,640,480); }
+            }
+        ]
+    },
+    // Before chase
+    {
+        lines: [
+            { char: 'dustin', name: 'DUSTIN', side: 'left',
+              text: 'Luis! Vehicles on our six! Three of them!\nThey\'re gaining fast!',
+              bg: () => { ctx.fillStyle = '#201510'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'raider', name: '???', side: 'right',
+              text: '[RADIO CRACKLE]\n"Pull over and pay the toll, or we take\neverything including your ride."',
+              bg: () => { ctx.fillStyle = '#201510'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'luis', name: 'LUIS', side: 'left',
+              text: 'THE CLAIM. This is their territory now?',
+              choices: [
+                { text: 'Gun it! We\'re not stopping!', value: 'fight' },
+                { text: 'Maybe we can negotiate...', value: 'talk' },
+                { text: 'Everyone hold on!', value: 'evade' }
+              ],
+              bg: () => { ctx.fillStyle = '#201510'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'chen', name: 'CHEN', side: 'right',
+              text: 'Gun\'s loaded. Whatever you decide,\ndecide it NOW!',
+              bg: () => { ctx.fillStyle = '#201510'; ctx.fillRect(0,0,640,480); }
+            }
+        ]
+    },
+    // After chase
+    {
+        lines: [
+            { char: 'yolanda', name: 'YOLANDA', side: 'right',
+              text: '[breathing heavy]\nWe made it. Barely. Luis, you okay?',
+              bg: () => { ctx.fillStyle = '#151a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'luis', name: 'LUIS', side: 'left',
+              text: 'I\'ll live. But THE CLAIM knows us now.\nThis isn\'t over.',
+              bg: () => { ctx.fillStyle = '#151a15'; ctx.fillRect(0,0,640,480); }
+            },
+            { char: 'dustin', name: 'DUSTIN', side: 'left',
+              text: 'Settlement\'s just ahead. Let\'s finish the job\nand figure out our next move.',
+              bg: () => { ctx.fillStyle = '#151a15'; ctx.fillRect(0,0,640,480); }
+            }
+        ]
+    }
+];
+
+function startDemo() {
+    gameStarted = true;
+    gameState = 'cutscene';
+    demoSection = 0;
+    startCutscene(demoCutscenes[0], () => {
+        gameState = 'exploration';
+        initExploration();
+    });
+    startMusic();
+}
+
+// ==================== MAIN LOOP ====================
+function update() {
+    updateVHS();
+    stateTimer++;
+
+    if (gameState === 'cutscene') {
+        if (!updateCutscene()) {
+            // Cutscene ended, handled by callback
+        }
+    } else if (gameState === 'exploration') {
+        updateExploration();
+    } else if (gameState === 'chase') {
+        updateChase();
+        if (chase.health <= 0 || chase.distance > 500) {
+            gameState = 'cutscene';
+            startCutscene(demoCutscenes[3], () => {
+                gameState = 'end';
+            });
+        }
+    }
+}
+
+function draw() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 640, 480);
+
+    if (gameState === 'cutscene') {
+        drawCutscene();
+    } else if (gameState === 'exploration') {
+        drawExploration();
+    } else if (gameState === 'chase') {
+        drawChase();
+    } else if (gameState === 'end') {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, 640, 480);
+        ctx.fillStyle = '#a33';
+        ctx.font = '32px monospace';
+        ctx.fillText('AUTOGANG', 230, 180);
+        ctx.fillStyle = '#888';
+        ctx.font = '14px monospace';
+        ctx.fillText('DEMO COMPLETE', 260, 230);
+        ctx.fillStyle = '#666';
+        ctx.font = '12px monospace';
+        ctx.fillText('Thank you for playing', 250, 280);
+        ctx.fillText('Full game in development', 240, 310);
+        ctx.fillStyle = '#5a5';
+        ctx.fillText('Press R to replay', 265, 380);
+    }
+
+    drawVHS();
+}
+
+function gameLoop() {
+    if (gameStarted) {
+        update();
+        draw();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+// ==================== INPUT ====================
+document.addEventListener('keydown', e => {
+    keys[e.key] = true;
+
+    if (!gameStarted && e.key === ' ') {
+        startScreen.style.display = 'none';
+        initAudio();
+        startDemo();
+        return;
+    }
+
+    if (gameState === 'cutscene') {
+        handleCutsceneInput(e.key);
+    } else if (gameState === 'exploration' && e.key === ' ') {
+        if (exploration.interactTarget) {
+            playSelect();
+            demoSection++;
+            if (demoSection === 1) {
+                gameState = 'cutscene';
+                startCutscene(demoCutscenes[1], () => {
+                    gameState = 'cutscene';
+                    startCutscene(demoCutscenes[2], () => {
+                        gameState = 'chase';
+                        initChase();
+                    });
+                });
+            }
+        }
+    } else if (gameState === 'chase' && e.key === ' ') {
+        shootChase();
+    } else if (gameState === 'end' && (e.key === 'r' || e.key === 'R')) {
+        demoSection = 0;
+        startDemo();
+    }
+});
+
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+startScreen.addEventListener('click', () => {
+    if (!gameStarted) {
+        startScreen.style.display = 'none';
+        initAudio();
+        startDemo();
+    }
+});
+
+// Start
+gameLoop();
+</script>
+</body>
+</html>
