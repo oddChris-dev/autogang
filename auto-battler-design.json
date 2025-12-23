@@ -1,0 +1,350 @@
+{
+  "gameMeta": {
+    "title": "Convoy Clash",
+    "description": "Grid-based auto-battler where players deploy car units, then watch tactical combat unfold",
+    "gridSize": {
+      "width": 6,
+      "height": 4,
+      "playerRowsFromBottom": 2,
+      "enemyRowsFromTop": 2
+    },
+    "battleDuration": "60-90 seconds avg"
+  },
+  "units": [
+    {
+      "id": "scout",
+      "name": "Motorcycle Scout",
+      "emoji": "🏍",
+      "role": "Fast Harasser",
+      "cost": 1,
+      "stats": {
+        "hp": 20,
+        "damage": 8,
+        "range": 2,
+        "speed": 3,
+        "armor": 0
+      },
+      "special": {
+        "name": "Hit and Run",
+        "description": "Moves 3 tiles per turn, excellent kiting potential"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["heavy-rig"],
+        "weakVs": ["mine-layer"],
+        "reasoning": "Kites slow tanks; dies to area denial"
+      }
+    },
+    {
+      "id": "gun-truck",
+      "name": "Gun Truck",
+      "emoji": "🚚",
+      "role": "Reliable Ranged",
+      "cost": 2,
+      "stats": {
+        "hp": 50,
+        "damage": 15,
+        "range": 4,
+        "speed": 1,
+        "armor": 0
+      },
+      "special": {
+        "name": "Balanced Fighter",
+        "description": "No special ability; solid all-around stats"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["mine-layer", "harpoon-car"],
+        "weakVs": ["rocket-jeep"],
+        "reasoning": "Outranges mines; outranged by rockets"
+      }
+    },
+    {
+      "id": "heavy-rig",
+      "name": "Heavy Rig",
+      "emoji": "🚛",
+      "role": "Immovable Tank",
+      "cost": 3,
+      "stats": {
+        "hp": 100,
+        "damage": 25,
+        "range": 1,
+        "speed": 0,
+        "armor": 0.25
+      },
+      "special": {
+        "name": "Steel Plating",
+        "description": "Reduces all damage by 25%; immobile but devastating at close range"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["harpoon-car", "gun-truck"],
+        "weakVs": ["scout"],
+        "reasoning": "Too slow to catch scouts; crushes slower units"
+      }
+    },
+    {
+      "id": "rocket-jeep",
+      "name": "Rocket Jeep",
+      "emoji": "🚙",
+      "role": "Glass Cannon",
+      "cost": 3,
+      "stats": {
+        "hp": 30,
+        "damage": 40,
+        "range": 6,
+        "speed": 2,
+        "armor": 0
+      },
+      "special": {
+        "name": "Artillery Strike",
+        "description": "Longest range in game; one hit kills most units but dies fast"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["gun-truck", "scout"],
+        "weakVs": ["harpoon-car"],
+        "reasoning": "Outranges most; pulled into melee by harpoon"
+      }
+    },
+    {
+      "id": "harpoon-car",
+      "name": "Harpoon Car",
+      "emoji": "🪝",
+      "role": "Control Unit",
+      "cost": 2,
+      "stats": {
+        "hp": 40,
+        "damage": 12,
+        "range": 3,
+        "speed": 1,
+        "armor": 0
+      },
+      "special": {
+        "name": "Reel In",
+        "description": "On hit, pulls target 2 tiles closer; breaks long-range dominance"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["rocket-jeep", "scout"],
+        "weakVs": ["heavy-rig"],
+        "reasoning": "Negates ranged advantage; can't pull heavy armor far"
+      }
+    },
+    {
+      "id": "mine-layer",
+      "name": "Mine Layer",
+      "emoji": "💣",
+      "role": "Area Denial",
+      "cost": 2,
+      "stats": {
+        "hp": 35,
+        "damage": 20,
+        "range": 0,
+        "speed": 1,
+        "armor": 0
+      },
+      "special": {
+        "name": "Minefield",
+        "description": "Plants mines in 2-tile radius; enemies take 20 damage entering field (one-time)"
+      },
+      "rockPaperScissors": {
+        "strongVs": ["scout", "heavy-rig"],
+        "weakVs": ["gun-truck"],
+        "reasoning": "Denies fast/melee units area; outgunned by ranged"
+      }
+    }
+  ],
+  "combatSystem": {
+    "phases": [
+      {
+        "phase": 1,
+        "name": "Deployment",
+        "duration": "player-controlled",
+        "description": "Player drags units onto grid (6 cols x 2 rows bottom side)",
+        "rules": [
+          "Each unit costs supply points (total pool: ~6-8 points)",
+          "Can field 3-6 units total",
+          "Units must be placed in bottom 2 rows",
+          "Enemy auto-deploys mirror composition"
+        ]
+      },
+      {
+        "phase": 2,
+        "name": "Initiative",
+        "duration": "instant",
+        "description": "Determine attack order",
+        "rules": [
+          "Speed ties broken by unit type priority (Tanks > Ranged > Utility > Fast)",
+          "Turn order displayed in UI for clarity"
+        ]
+      },
+      {
+        "phase": 3,
+        "name": "Movement",
+        "duration": "~1 second per unit",
+        "description": "Units move toward enemies based on positioning AI",
+        "rules": [
+          "Melee units move to close distance (if range <= 1)",
+          "Ranged units move to maintain distance (prefer range >= 3)",
+          "Harpoon cars move to intercept high-priority targets",
+          "Mine layers hold position and deploy mines (triggers auto-deploy)",
+          "Each unit moves exactly (speed) tiles per turn"
+        ]
+      },
+      {
+        "phase": 4,
+        "name": "Combat",
+        "duration": "~0.5 sec per attack",
+        "description": "Units attack targets in range",
+        "rules": [
+          "Attack in speed order (fastest first)",
+          "Each unit can attack once per round if target in range",
+          "Range measured as grid distance (Chebyshev/max of x,y delta)",
+          "Harpoon car pulls target 2 tiles toward self after hit",
+          "Mine layer triggers automatic explosion on enemy entering minefield",
+          "Heavy Rig armor reduces damage: final_damage = base_damage * 0.75",
+          "Damage applied immediately; dead units don't get to attack"
+        ]
+      },
+      {
+        "phase": 5,
+        "name": "Cleanup",
+        "duration": "instant",
+        "description": "Remove destroyed units, resolve mine triggers",
+        "rules": [
+          "Units with HP <= 0 removed from battle",
+          "Harpoon pull happens mid-phase and can trigger mines on destination",
+          "Next round begins immediately"
+        ]
+      }
+    ]
+  },
+  "aiTargeting": {
+    "priorities": [
+      {
+        "priority": 1,
+        "condition": "Target with lowest HP in range (execute kills)",
+        "weight": "high"
+      },
+      {
+        "priority": 2,
+        "condition": "Target that is strongest unit in range (disable threats)",
+        "weight": "medium"
+      },
+      {
+        "priority": 3,
+        "condition": "Closest unit in range",
+        "weight": "medium"
+      },
+      {
+        "priority": 4,
+        "condition": "Random unit in range if no clear winner",
+        "weight": "low"
+      }
+    ],
+    "positioningStrategies": {
+      "meleeUnits": {
+        "targetDistance": 1,
+        "strategy": "Close to nearest enemy, prioritize weak units",
+        "pathfinding": "Move toward closest enemy each turn"
+      },
+      "rangedUnits": {
+        "targetDistance": "optimal_range",
+        "strategy": "Maintain distance, fire at closest high-priority target",
+        "pathfinding": "Move to maximize range advantage vs nearest threat"
+      },
+      "tankUnits": {
+        "targetDistance": 1,
+        "strategy": "Move toward enemy front line, block damage for allies",
+        "pathfinding": "Move toward center of enemy group"
+      },
+      "controlUnits": {
+        "targetDistance": 3,
+        "strategy": "Intercept high-value targets, especially ranged",
+        "pathfinding": "Move to intercept rocket jeeps and gun trucks"
+      }
+    }
+  },
+  "victoryConditions": {
+    "playerWins": {
+      "trigger": "All enemy units destroyed",
+      "reward": "Battle won; gain resources/morale"
+    },
+    "playerLoses": {
+      "trigger": "All player units destroyed",
+      "consequence": "Supplies lost; convoy damaged"
+    },
+    "timeout": {
+      "duration": 180,
+      "trigger": "Battle reaches 3 minutes without clear winner",
+      "resolution": "Unit with higher remaining HP% declared winner"
+    }
+  },
+  "balanceNotes": {
+    "rockPaperScissorsTable": {
+      "scout": {
+        "beats": "heavy-rig (kites slow tank)",
+        "loses_to": "mine-layer (area denial)"
+      },
+      "gun-truck": {
+        "beats": "mine-layer (outranges)",
+        "loses_to": "rocket-jeep (out-ranged)"
+      },
+      "heavy-rig": {
+        "beats": "harpoon-car (armor absorbs pull)",
+        "loses_to": "scout (too slow to catch)"
+      },
+      "rocket-jeep": {
+        "beats": "gun-truck (longer range)",
+        "loses_to": "harpoon-car (pull nullifies range)"
+      },
+      "harpoon-car": {
+        "beats": "rocket-jeep (pull into melee)",
+        "loses_to": "heavy-rig (armor + melee damage)"
+      },
+      "mine-layer": {
+        "beats": "scout (forced into minefield)",
+        "loses_to": "gun-truck (ranged avoidance)"
+      }
+    },
+    "costBalance": {
+      "cost1": ["scout"],
+      "cost2": ["gun-truck", "harpoon-car", "mine-layer"],
+      "cost3": ["heavy-rig", "rocket-jeep"],
+      "note": "Total budget ~7-8 points allows varied compositions"
+    },
+    "designPhilosophy": [
+      "Each unit has a clear role and counter-role",
+      "Rock-paper-scissors extends to 6 units, not just 3",
+      "Speed stat creates tactical depth in turn order",
+      "Special abilities are simple but impactful (pull, mines, armor)",
+      "No RNG in combat (deterministic for player learning)"
+    ]
+  },
+  "implementationNotes": {
+    "minimumCodeRequired": "~200 lines",
+    "keyModules": [
+      {
+        "name": "UnitClass",
+        "lines": "~30",
+        "responsibility": "HP, damage, position, attack logic"
+      },
+      {
+        "name": "GridManager",
+        "lines": "~40",
+        "responsibility": "Unit placement, collision, distance calculation"
+      },
+      {
+        "name": "BattleLoop",
+        "lines": "~60",
+        "responsibility": "Phase management, unit movement, attack resolution"
+      },
+      {
+        "name": "AIController",
+        "lines": "~40",
+        "responsibility": "Target selection, positioning decisions"
+      },
+      {
+        "name": "Renderer/UI",
+        "lines": "~30",
+        "responsibility": "Display grid, units, battle log, results"
+      }
+    ]
+  }
+}

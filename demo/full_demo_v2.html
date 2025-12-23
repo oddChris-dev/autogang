@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - Enhanced Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #222;
+            overflow: hidden;
+        }
+        #game-canvas, #vhs-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+        }
+        #vhs-canvas { z-index: 100; pointer-events: none; }
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(#100800, #000);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #888;
+            z-index: 200;
+            cursor: pointer;
+        }
+        #start-screen h1 {
+            font-size: 36px;
+            color: #c44;
+            text-shadow: 4px 4px 0 #400, -1px -1px 0 #f88;
+            margin-bottom: 20px;
+            letter-spacing: 4px;
+        }
+        .blink { animation: blink 1s infinite; }
+        @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <canvas id="vhs-canvas" width="640" height="480"></canvas>
+        <div id="start-screen">
+            <h1>AUTOGANG</h1>
+            <p style="color:#753;margin-bottom:10px;font-size:12px">OREGON TRAIL × MAD MAX × XCOM</p>
+            <p style="color:#555;margin-bottom:30px;font-size:11px">Scavenge. Recruit. Survive.</p>
+            <p class="blink" style="color:#a86">[ PRESS SPACE OR CLICK ]</p>
+            <p style="color:#333;margin-top:50px;font-size:10px">ARROWS: Move/Select | SPACE: Confirm/Shoot | Click: Place Units</p>
+        </div>
+    </div>
+<script>
+// ============================================================
+// AUTOGANG - ENHANCED DEMO
+// VHS tracking, tactical battles, unique music per section
+// ============================================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const vhsCanvas = document.getElementById('vhs-canvas');
+const vhsCtx = vhsCanvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+let audioCtx = null;
+const keys = {};
+let mouseX = 0, mouseY = 0, mouseClicked = false;
+
+// ==================== AUDIO SYSTEM ====================
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playTone(freq, dur, type='square', vol=0.08) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+}
+
+function sfxSelect() { playTone(500,0.05); setTimeout(()=>playTone(700,0.07),40); }
+function sfxMove() { playTone(250,0.03); }
+function sfxShoot() { playTone(120,0.1,'sawtooth',0.12); playTone(80,0.15,'square',0.08); }
+function sfxHit() { playTone(60,0.2,'sawtooth',0.15); }
+function sfxExplosion() { playTone(50,0.3,'sawtooth',0.2); playTone(30,0.4,'square',0.15); }
+function sfxPlace() { playTone(400,0.08,'triangle'); }
+function sfxEngine() { playTone(55+Math.random()*15,0.08,'triangle',0.02); }
+function sfxText() { playTone(180+Math.random()*80,0.015,'square',0.04); }
+
+// Music system - different for each mode
+let musicInterval = null;
+let currentMusic = null;
+
+const MUSIC = {
+    cutscene: { bass: [82,82,98,98,110,110,98,82], melody: [247,220,247,294,330,294,247,220], tempo: 320, type: 'triangle' },
+    exploration: { bass: [98,98,82,82,73,73,82,98], melody: [294,330,392,330,294,262,294,330], tempo: 280, type: 'triangle' },
+    chase: { bass: [110,110,130,130,146,146,130,110], melody: [440,392,440,523,587,523,440,392], tempo: 180, type: 'square' },
+    tactical: { bass: [65,65,73,73,82,82,73,65], melody: [196,220,262,220,196,174,196,220], tempo: 400, type: 'sine' }
+};
+
+let noteIdx = 0;
+function startMusic(mode) {
+    if (currentMusic === mode) return;
+    stopMusic();
+    currentMusic = mode;
+    const m = MUSIC[mode];
+    if (!m) return;
+    noteIdx = 0;
+    musicInterval = setInterval(() => {
+        playTone(m.bass[noteIdx % 8], 0.2, 'triangle', 0.03);
+        if (noteIdx % 2 === 0) playTone(m.melody[(noteIdx/2) % 8], 0.18, m.type, 0.02);
+        noteIdx++;
+    }, m.tempo);
+}
+function stopMusic() { clearInterval(musicInterval); currentMusic = null; }
+
+// ==================== VHS SYSTEM - REALISTIC TRACKING ====================
+const vhs = {
+    state: 'clean',         // clean, minor, bad, rolling
+    stateTimer: 0,
+    stateDuration: 0,
+    rollOffset: 0,
+    noiseLines: [],
+    trackingOffset: 0,
+    nextStateTime: 200
+};
+
+function updateVHS() {
+    vhs.stateTimer++;
+
+    // State machine for tracking quality
+    if (vhs.stateTimer > vhs.nextStateTime) {
+        vhs.stateTimer = 0;
+        // Transition to next state
+        const rand = Math.random();
+        if (vhs.state === 'clean') {
+            if (rand < 0.6) { vhs.state = 'minor'; vhs.nextStateTime = 60 + Math.random() * 100; }
+            else { vhs.state = 'clean'; vhs.nextStateTime = 200 + Math.random() * 400; }
+        } else if (vhs.state === 'minor') {
+            if (rand < 0.3) { vhs.state = 'bad'; vhs.nextStateTime = 40 + Math.random() * 60; }
+            else if (rand < 0.7) { vhs.state = 'clean'; vhs.nextStateTime = 300 + Math.random() * 300; }
+            else { vhs.state = 'minor'; vhs.nextStateTime = 80 + Math.random() * 80; }
+        } else if (vhs.state === 'bad') {
+            if (rand < 0.4) { vhs.state = 'rolling'; vhs.nextStateTime = 30 + Math.random() * 50; }
+            else { vhs.state = 'minor'; vhs.nextStateTime = 60 + Math.random() * 80; }
+        } else if (vhs.state === 'rolling') {
+            vhs.state = 'bad'; vhs.nextStateTime = 30 + Math.random() * 40;
+        }
+    }
+
+    // Update effects based on state
+    if (vhs.state === 'clean') {
+        vhs.trackingOffset *= 0.9;
+        vhs.rollOffset *= 0.95;
+        vhs.noiseLines = [];
+    } else if (vhs.state === 'minor') {
+        vhs.trackingOffset = Math.sin(Date.now() / 200) * 3;
+        if (Math.random() < 0.1) {
+            vhs.noiseLines = [{ y: Math.random() * 480, h: 1, a: 0.3 }];
+        } else {
+            vhs.noiseLines = [];
+        }
+    } else if (vhs.state === 'bad') {
+        vhs.trackingOffset = Math.sin(Date.now() / 50) * 15 + (Math.random() - 0.5) * 10;
+        vhs.noiseLines = [];
+        for (let i = 0; i < 3 + Math.random() * 4; i++) {
+            vhs.noiseLines.push({
+                y: Math.random() * 480,
+                h: 1 + Math.random() * 3,
+                a: 0.3 + Math.random() * 0.4,
+                offset: (Math.random() - 0.5) * 20
+            });
+        }
+    } else if (vhs.state === 'rolling') {
+        vhs.rollOffset += 8;
+        if (vhs.rollOffset > 480) vhs.rollOffset -= 480;
+        vhs.trackingOffset = (Math.random() - 0.5) * 30;
+        vhs.noiseLines = [];
+        for (let i = 0; i < 8; i++) {
+            vhs.noiseLines.push({ y: (i * 60 + vhs.rollOffset) % 480, h: 3, a: 0.6, offset: 0 });
+        }
+    }
+}
+
+function drawVHS() {
+    vhsCtx.clearRect(0, 0, 640, 480);
+
+    // Scanlines (always present, subtle)
+    vhsCtx.fillStyle = 'rgba(0,0,0,0.12)';
+    for (let y = 0; y < 480; y += 2) vhsCtx.fillRect(0, y, 640, 1);
+
+    // Rolling effect - redraw shifted
+    if (vhs.state === 'rolling') {
+        const imgData = ctx.getImageData(0, 0, 640, 480);
+        vhsCtx.putImageData(imgData, 0, vhs.rollOffset);
+        vhsCtx.putImageData(imgData, 0, vhs.rollOffset - 480);
+        // Sync bar
+        vhsCtx.fillStyle = 'rgba(255,255,255,0.15)';
+        vhsCtx.fillRect(0, vhs.rollOffset - 5, 640, 10);
+    }
+
+    // Horizontal tracking offset (bad states)
+    if (Math.abs(vhs.trackingOffset) > 2) {
+        vhsCtx.fillStyle = `rgba(0,0,0,0.5)`;
+        if (vhs.trackingOffset > 0) vhsCtx.fillRect(0, 0, vhs.trackingOffset, 480);
+        else vhsCtx.fillRect(640 + vhs.trackingOffset, 0, -vhs.trackingOffset, 480);
+    }
+
+    // Noise lines
+    vhs.noiseLines.forEach(line => {
+        vhsCtx.fillStyle = `rgba(255,255,255,${line.a})`;
+        vhsCtx.fillRect(line.offset || 0, line.y, 640, line.h);
+    });
+
+    // Chromatic aberration (subtle)
+    vhsCtx.globalCompositeOperation = 'screen';
+    vhsCtx.fillStyle = 'rgba(255,0,0,0.015)';
+    vhsCtx.fillRect(1, 0, 640, 480);
+    vhsCtx.fillStyle = 'rgba(0,255,255,0.015)';
+    vhsCtx.fillRect(-1, 0, 640, 480);
+    vhsCtx.globalCompositeOperation = 'source-over';
+
+    // Vignette
+    const grad = vhsCtx.createRadialGradient(320, 240, 150, 320, 240, 380);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.35)');
+    vhsCtx.fillStyle = grad;
+    vhsCtx.fillRect(0, 0, 640, 480);
+
+    // Tape edge wear
+    vhsCtx.fillStyle = 'rgba(0,0,0,0.25)';
+    vhsCtx.fillRect(0, 0, 640, 6);
+    vhsCtx.fillRect(0, 474, 640, 6);
+
+    // HUD overlay
+    vhsCtx.fillStyle = '#fff';
+    vhsCtx.font = '9px monospace';
+    if (Math.floor(Date.now() / 600) % 2) vhsCtx.fillText('▶ PLAY', 565, 20);
+    const t = Math.floor(Date.now() / 1000);
+    vhsCtx.fillText(`00:${String(Math.floor(t/60)%60).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`, 15, 20);
+
+    // Tracking indicator when bad
+    if (vhs.state === 'bad' || vhs.state === 'rolling') {
+        vhsCtx.fillStyle = '#fff';
+        vhsCtx.fillText('TRACKING ▲▼', 280, 470);
+    }
+}
+
+// ==================== CHARACTER PORTRAITS ====================
+const CHARS = {
+    luis: { skin:'#c97', hair:'#222', hairStyle:'short', eyes:'#432', clothes:'#844', scar:false },
+    chen: { skin:'#db9', hair:'#111', hairStyle:'short', eyes:'#321', clothes:'#458', scar:false },
+    yolanda: { skin:'#a86', hair:'#111', hairStyle:'long', eyes:'#321', clothes:'#649', scar:false },
+    dustin: { skin:'#da9', hair:'#654', hairStyle:'short', eyes:'#543', clothes:'#555', scar:false },
+    raider: { skin:'#b97', hair:'#333', hairStyle:'bald', eyes:'#222', clothes:'#534', scar:true },
+    merchant: { skin:'#c97', hair:'#666', hairStyle:'short', eyes:'#543', clothes:'#575', scar:false },
+    survivor: { skin:'#da9', hair:'#543', hairStyle:'long', eyes:'#543', clothes:'#654', scar:false },
+    maya: { skin:'#a86', hair:'#222', hairStyle:'long', eyes:'#432', clothes:'#466', scar:false },
+    generic: { skin:'#c97', hair:'#444', hairStyle:'short', eyes:'#333', clothes:'#555', scar:false }
+};
+
+function drawPortrait(x, y, charId, scale=1) {
+    const s = scale * 4;
+    const c = CHARS[charId] || CHARS.generic;
+
+    ctx.fillStyle = c.skin;
+    ctx.fillRect(x, y, 24*s, 28*s);
+
+    ctx.fillStyle = c.hair;
+    ctx.fillRect(x, y, 24*s, 7*s);
+    if (c.hairStyle === 'long') {
+        ctx.fillRect(x, y+7*s, 4*s, 10*s);
+        ctx.fillRect(x+20*s, y+7*s, 4*s, 10*s);
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x+5*s, y+10*s, 5*s, 4*s);
+    ctx.fillRect(x+14*s, y+10*s, 5*s, 4*s);
+    ctx.fillStyle = c.eyes;
+    ctx.fillRect(x+6*s, y+11*s, 3*s, 2*s);
+    ctx.fillRect(x+15*s, y+11*s, 3*s, 2*s);
+
+    ctx.fillStyle = '#a66';
+    ctx.fillRect(x+9*s, y+19*s, 6*s, 2*s);
+
+    ctx.fillStyle = c.clothes;
+    ctx.fillRect(x, y+25*s, 24*s, 5*s);
+
+    if (c.scar) {
+        ctx.fillStyle = '#966';
+        ctx.fillRect(x+17*s, y+10*s, 1*s, 10*s);
+    }
+}
+
+// ==================== CUTSCENE SYSTEM ====================
+let cutscene = {
+    active: false, lines: [], idx: 0, charIdx: 0,
+    choice: 0, choosing: false, result: null, callback: null
+};
+
+function startCutscene(data, cb) {
+    cutscene = { active: true, lines: data.lines, idx: 0, charIdx: 0, choice: 0, choosing: false, result: null, callback: cb };
+}
+
+function updateCutscene() {
+    if (!cutscene.active) return false;
+    const line = cutscene.lines[cutscene.idx];
+    if (!line) { cutscene.active = false; if (cutscene.callback) cutscene.callback(cutscene.result); return false; }
+
+    if (!cutscene.choosing && cutscene.charIdx < line.text.length) {
+        cutscene.charIdx++;
+        if (Math.random() > 0.6) sfxText();
+    }
+    if (line.choices && cutscene.charIdx >= line.text.length) cutscene.choosing = true;
+    return true;
+}
+
+function drawCutscene() {
+    if (!cutscene.active) return;
+    const line = cutscene.lines[cutscene.idx];
+    if (!line) return;
+
+    if (line.bg) line.bg();
+
+    const px = line.side === 'right' ? 495 : 25;
+    ctx.fillStyle = '#0a0a12';
+    ctx.fillRect(px-5, 180, 130, 145);
+    ctx.strokeStyle = '#556';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px-5, 180, 130, 145);
+    drawPortrait(px, 185, line.char, 1);
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(px-5, 305, 130, 20);
+    ctx.fillStyle = '#fb5';
+    ctx.font = '11px monospace';
+    ctx.fillText(line.name || '???', px+2, 318);
+
+    ctx.fillStyle = 'rgba(5,8,15,0.92)';
+    ctx.fillRect(20, 380, 600, 90);
+    ctx.strokeStyle = '#667';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(20, 380, 600, 90);
+
+    ctx.fillStyle = '#ccd';
+    ctx.font = '13px monospace';
+    const txt = line.text.substring(0, cutscene.charIdx);
+    txt.split('\n').forEach((l,i) => ctx.fillText(l, 38, 402 + i*18));
+
+    if (cutscene.choosing && line.choices) {
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillRect(380, 260, 240, line.choices.length * 26 + 16);
+        ctx.strokeStyle = '#5a5';
+        ctx.strokeRect(380, 260, 240, line.choices.length * 26 + 16);
+
+        line.choices.forEach((ch, i) => {
+            const cy = 282 + i * 26;
+            if (i === cutscene.choice) {
+                ctx.fillStyle = '#5a5';
+                ctx.fillText('▶', 392, cy);
+                ctx.fillStyle = '#fff';
+            } else ctx.fillStyle = '#777';
+            ctx.fillText(ch.text, 412, cy);
+        });
+    }
+
+    if (!cutscene.choosing && cutscene.charIdx >= line.text.length && Math.floor(Date.now()/350)%2) {
+        ctx.fillStyle = '#888';
+        ctx.fillText('▼', 598, 458);
+    }
+}
+
+function inputCutscene(key) {
+    if (!cutscene.active) return;
+    const line = cutscene.lines[cutscene.idx];
+
+    if (cutscene.choosing && line.choices) {
+        if (key === 'ArrowUp') { cutscene.choice = Math.max(0, cutscene.choice-1); sfxMove(); }
+        else if (key === 'ArrowDown') { cutscene.choice = Math.min(line.choices.length-1, cutscene.choice+1); sfxMove(); }
+        else if (key === ' ') {
+            cutscene.result = line.choices[cutscene.choice].value;
+            cutscene.choosing = false;
+            cutscene.idx++;
+            cutscene.charIdx = 0;
+            cutscene.choice = 0;
+            sfxSelect();
+        }
+    } else if (key === ' ') {
+        if (cutscene.charIdx < line.text.length) cutscene.charIdx = line.text.length;
+        else { cutscene.idx++; cutscene.charIdx = 0; cutscene.choice = 0; sfxSelect(); }
+    }
+}
+
+// ==================== EXPLORATION ====================
+const explore = {
+    px: 300, py: 360, angle: 0, speed: 0,
+    objects: [], npcs: [], target: null,
+    fuel: 80, money: 120, crew: ['Luis','Chen','Yolanda'], inventory: ['Wrench','Medkit','Ammo×20']
+};
+
+function initExplore() {
+    explore.objects = [];
+    for (let i = 0; i < 18; i++) {
+        explore.objects.push({ type:'car', x:80+Math.random()*480, y:40+Math.random()*230,
+            color:['#433','#343','#334','#443','#353'][~~(Math.random()*5)], rot:Math.random()*0.4-0.2 });
+    }
+    for (let i = 0; i < 6; i++) {
+        explore.objects.push({ type:'trailer', x:60+Math.random()*520, y:40+Math.random()*200, color:'#454' });
+    }
+    for (let i = 0; i < 10; i++) {
+        explore.objects.push({ type:'tent', x:50+Math.random()*540, y:30+Math.random()*210,
+            color:['#446','#464','#644','#446'][~~(Math.random()*4)] });
+    }
+    for (let i = 0; i < 7; i++) {
+        explore.objects.push({ type:'fire', x:90+Math.random()*460, y:50+Math.random()*200 });
+    }
+
+    explore.npcs = [
+        { x:180, y:130, char:'merchant', name:'SAL THE TRADER', type:'shop' },
+        { x:420, y:90, char:'maya', name:'MAYA - MECHANIC', type:'recruit' },
+        { x:300, y:180, char:'survivor', name:'OLD PETE', type:'info' }
+    ];
+}
+
+function updateExplore() {
+    if (keys['ArrowUp']) explore.speed = Math.min(explore.speed + 0.18, 2.8);
+    else if (keys['ArrowDown']) explore.speed = Math.max(explore.speed - 0.12, -1.2);
+    else explore.speed *= 0.94;
+
+    if (keys['ArrowLeft']) explore.angle -= 0.045;
+    if (keys['ArrowRight']) explore.angle += 0.045;
+
+    if (Math.abs(explore.speed) > 0.4 && Math.random() > 0.92) sfxEngine();
+
+    explore.px += Math.sin(explore.angle) * explore.speed;
+    explore.py -= Math.cos(explore.angle) * explore.speed;
+    explore.px = Math.max(25, Math.min(615, explore.px));
+    explore.py = Math.max(25, Math.min(455, explore.py));
+
+    if (Math.abs(explore.speed) > 0.3) explore.fuel -= 0.008;
+
+    explore.target = null;
+    explore.npcs.forEach(npc => {
+        const d = Math.hypot(npc.x - explore.px, npc.y - explore.py);
+        if (d < 45) explore.target = npc;
+    });
+}
+
+function drawExplore() {
+    ctx.fillStyle = '#252318';
+    ctx.fillRect(0, 0, 640, 480);
+    ctx.fillStyle = '#201f16';
+    for (let i = 0; i < 120; i++) ctx.fillRect((i*67)%640, (i*43)%480, 2, 2);
+
+    ctx.fillStyle = '#2a2a24';
+    ctx.fillRect(0, 330, 640, 70);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, 360, 640, 8);
+
+    explore.objects.forEach(o => {
+        if (o.type === 'car') {
+            ctx.save();
+            ctx.translate(o.x, o.y);
+            ctx.rotate(o.rot);
+            ctx.fillStyle = o.color;
+            ctx.fillRect(-14, -7, 28, 14);
+            ctx.fillRect(-9, -10, 18, 5);
+            ctx.fillStyle = '#234';
+            ctx.fillRect(-7, -9, 5, 3);
+            ctx.fillRect(2, -9, 5, 3);
+            ctx.restore();
+        } else if (o.type === 'trailer') {
+            ctx.fillStyle = o.color;
+            ctx.fillRect(o.x-22, o.y-10, 44, 20);
+            ctx.fillStyle = '#222';
+            ctx.fillRect(o.x-16, o.y-6, 8, 6);
+        } else if (o.type === 'tent') {
+            ctx.fillStyle = o.color;
+            ctx.beginPath();
+            ctx.moveTo(o.x, o.y-14);
+            ctx.lineTo(o.x-14, o.y+8);
+            ctx.lineTo(o.x+14, o.y+8);
+            ctx.fill();
+        } else if (o.type === 'fire') {
+            ctx.fillStyle = '#333';
+            ctx.fillRect(o.x-4, o.y-3, 8, 10);
+            ctx.fillStyle = '#f73';
+            ctx.fillRect(o.x-3, o.y-8, 6, 7);
+            ctx.fillStyle = '#fc5';
+            ctx.fillRect(o.x-2, o.y-6, 4, 4);
+        }
+    });
+
+    explore.npcs.forEach(npc => {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(npc.x-5, npc.y+6, 10, 3);
+        const c = CHARS[npc.char];
+        ctx.fillStyle = c.clothes;
+        ctx.fillRect(npc.x-4, npc.y-4, 8, 12);
+        ctx.fillStyle = c.skin;
+        ctx.fillRect(npc.x-3, npc.y-10, 6, 7);
+        ctx.fillStyle = c.hair;
+        ctx.fillRect(npc.x-3, npc.y-10, 6, 3);
+
+        if (explore.target === npc) {
+            ctx.fillStyle = '#ff0';
+            ctx.font = '9px monospace';
+            ctx.fillText('▼', npc.x-3, npc.y-16);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(npc.name, npc.x - npc.name.length*2.5, npc.y-24);
+        }
+    });
+
+    ctx.save();
+    ctx.translate(explore.px, explore.py);
+    ctx.rotate(explore.angle);
+    ctx.fillStyle = '#944';
+    ctx.fillRect(-10, -16, 20, 32);
+    ctx.fillRect(-7, -20, 14, 6);
+    ctx.fillStyle = '#6ae';
+    ctx.fillRect(-5, -18, 4, 4);
+    ctx.fillRect(1, -18, 4, 4);
+    ctx.fillStyle = '#ff8';
+    ctx.fillRect(-6, -16, 3, 2);
+    ctx.fillRect(3, -16, 3, 2);
+    ctx.restore();
+
+    // HUD
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(8, 8, 175, 85);
+    ctx.strokeStyle = '#444';
+    ctx.strokeRect(8, 8, 175, 85);
+
+    ctx.fillStyle = '#777';
+    ctx.font = '10px monospace';
+    ctx.fillText('FUEL', 16, 24);
+    ctx.fillStyle = explore.fuel > 25 ? '#5a5' : '#a55';
+    ctx.fillRect(50, 14, explore.fuel * 1.2, 12);
+    ctx.strokeStyle = '#444';
+    ctx.strokeRect(50, 14, 120, 12);
+
+    ctx.fillStyle = '#cc6';
+    ctx.fillText(`MONEY: $${explore.money}`, 16, 42);
+    ctx.fillStyle = '#888';
+    ctx.fillText(`CREW: ${explore.crew.length}`, 16, 58);
+    ctx.fillText(`ITEMS: ${explore.inventory.length}`, 16, 74);
+    ctx.fillText(`${explore.crew.join(', ')}`, 16, 88);
+
+    ctx.fillStyle = '#654';
+    ctx.font = '12px monospace';
+    ctx.fillText('◆ DUSTY FLATS ENCAMPMENT', 400, 22);
+
+    if (explore.target) {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(220, 430, 200, 26);
+        ctx.strokeStyle = '#5a5';
+        ctx.strokeRect(220, 430, 200, 26);
+        ctx.fillStyle = '#5a5';
+        ctx.font = '11px monospace';
+        ctx.fillText('[ SPACE ] Talk', 275, 448);
+    }
+}
+
+// ==================== TACTICAL BATTLE ====================
+const UNITS = {
+    scout: { name:'Scout Bike', hp:2, dmg:1, range:1, speed:4, cost:1, color:'#5a5', icon:'●' },
+    gunTruck: { name:'Gun Truck', hp:4, dmg:2, range:3, speed:2, cost:2, color:'#58a', icon:'■' },
+    heavyRig: { name:'Heavy Rig', hp:8, dmg:3, range:1, speed:1, cost:3, color:'#a55', icon:'▣' },
+    rocketJeep: { name:'Rocket Jeep', hp:2, dmg:4, range:4, speed:3, cost:3, color:'#a85', icon:'◆' },
+    harpoon: { name:'Harpoon Car', hp:3, dmg:1, range:2, speed:2, cost:2, color:'#5aa', icon:'◄' }
+};
+
+const tactical = {
+    phase: 'deploy', // deploy, battle, result
+    playerUnits: [],
+    enemyUnits: [],
+    selectedUnit: 'scout',
+    supply: 8,
+    battleTimer: 0,
+    battleLog: [],
+    result: null
+};
+
+function initTactical() {
+    tactical.phase = 'deploy';
+    tactical.playerUnits = [];
+    tactical.enemyUnits = [];
+    tactical.selectedUnit = 'scout';
+    tactical.supply = 8;
+    tactical.battleTimer = 0;
+    tactical.battleLog = [];
+    tactical.result = null;
+
+    // Pre-place some enemy units
+    tactical.enemyUnits = [
+        { ...UNITS.gunTruck, x: 2, y: 0, team: 'enemy', hp: UNITS.gunTruck.hp },
+        { ...UNITS.scout, x: 4, y: 0, team: 'enemy', hp: UNITS.scout.hp },
+        { ...UNITS.heavyRig, x: 3, y: 1, team: 'enemy', hp: UNITS.heavyRig.hp },
+        { ...UNITS.rocketJeep, x: 1, y: 0, team: 'enemy', hp: UNITS.rocketJeep.hp }
+    ];
+}
+
+function updateTactical() {
+    if (tactical.phase === 'battle') {
+        tactical.battleTimer++;
+
+        if (tactical.battleTimer % 40 === 0) {
+            // Battle tick
+            const allUnits = [...tactical.playerUnits, ...tactical.enemyUnits].filter(u => u.hp > 0);
+            allUnits.sort((a, b) => b.speed - a.speed);
+
+            allUnits.forEach(unit => {
+                if (unit.hp <= 0) return;
+
+                const enemies = (unit.team === 'player' ? tactical.enemyUnits : tactical.playerUnits).filter(e => e.hp > 0);
+                if (enemies.length === 0) return;
+
+                // Find target
+                let target = null;
+                let minDist = Infinity;
+                enemies.forEach(e => {
+                    const d = Math.abs(e.x - unit.x) + Math.abs(e.y - unit.y);
+                    if (d < minDist) { minDist = d; target = e; }
+                });
+
+                if (target && minDist <= unit.range) {
+                    target.hp -= unit.dmg;
+                    sfxHit();
+                    if (target.hp <= 0) {
+                        tactical.battleLog.push(`${unit.name} destroyed ${target.name}!`);
+                        sfxExplosion();
+                    }
+                } else if (target) {
+                    // Move toward target
+                    if (target.x > unit.x) unit.x += 0.3;
+                    else if (target.x < unit.x) unit.x -= 0.3;
+                    if (target.y > unit.y) unit.y += 0.15;
+                    else if (target.y < unit.y) unit.y -= 0.15;
+                }
+            });
+
+            // Check victory
+            const playerAlive = tactical.playerUnits.filter(u => u.hp > 0).length;
+            const enemyAlive = tactical.enemyUnits.filter(u => u.hp > 0).length;
+
+            if (enemyAlive === 0) { tactical.phase = 'result'; tactical.result = 'victory'; }
+            else if (playerAlive === 0) { tactical.phase = 'result'; tactical.result = 'defeat'; }
+        }
+    }
+}
+
+function drawTactical() {
+    // Background
+    ctx.fillStyle = '#1a1a18';
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Grid
+    const gridX = 80, gridY = 80, cellW = 80, cellH = 50;
+
+    for (let y = 0; y < 6; y++) {
+        for (let x = 0; x < 6; x++) {
+            const isPlayerZone = y >= 4;
+            ctx.fillStyle = isPlayerZone ? '#1a2218' : '#1a1618';
+            ctx.fillRect(gridX + x * cellW, gridY + y * cellH, cellW - 2, cellH - 2);
+            ctx.strokeStyle = '#333';
+            ctx.strokeRect(gridX + x * cellW, gridY + y * cellH, cellW - 2, cellH - 2);
+        }
+    }
+
+    // Units
+    const drawUnit = (unit) => {
+        const ux = gridX + unit.x * cellW + cellW/2;
+        const uy = gridY + unit.y * cellH + cellH/2;
+
+        ctx.fillStyle = unit.hp > 0 ? unit.color : '#333';
+        ctx.font = '24px monospace';
+        ctx.fillText(unit.icon, ux - 8, uy + 8);
+
+        // HP bar
+        if (unit.hp > 0) {
+            const maxHp = UNITS[Object.keys(UNITS).find(k => UNITS[k].name === unit.name)]?.hp || unit.hp;
+            ctx.fillStyle = '#300';
+            ctx.fillRect(ux - 20, uy + 15, 40, 4);
+            ctx.fillStyle = '#0a0';
+            ctx.fillRect(ux - 20, uy + 15, 40 * (unit.hp / maxHp), 4);
+        }
+    };
+
+    tactical.enemyUnits.forEach(drawUnit);
+    tactical.playerUnits.forEach(drawUnit);
+
+    // UI
+    if (tactical.phase === 'deploy') {
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(5, 400, 630, 75);
+
+        ctx.fillStyle = '#aaa';
+        ctx.font = '11px monospace';
+        ctx.fillText(`SUPPLY: ${tactical.supply}`, 15, 418);
+        ctx.fillText('Click grid to place | SPACE to start battle', 15, 435);
+
+        let ux = 15;
+        Object.entries(UNITS).forEach(([key, unit]) => {
+            const selected = tactical.selectedUnit === key;
+            ctx.fillStyle = selected ? '#fff' : '#666';
+            ctx.strokeStyle = selected ? unit.color : '#444';
+            ctx.strokeRect(ux, 445, 115, 25);
+            ctx.fillText(`${unit.icon} ${unit.name} (${unit.cost})`, ux + 5, 462);
+            ux += 125;
+        });
+    } else if (tactical.phase === 'battle') {
+        ctx.fillStyle = '#f44';
+        ctx.font = '14px monospace';
+        ctx.fillText('⚔ BATTLE IN PROGRESS', 250, 30);
+
+        // Battle log
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(5, 400, 630, 75);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '10px monospace';
+        tactical.battleLog.slice(-4).forEach((log, i) => {
+            ctx.fillText(log, 15, 420 + i * 15);
+        });
+    } else if (tactical.phase === 'result') {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(200, 180, 240, 100);
+        ctx.strokeStyle = tactical.result === 'victory' ? '#5a5' : '#a55';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(200, 180, 240, 100);
+
+        ctx.fillStyle = tactical.result === 'victory' ? '#5a5' : '#a55';
+        ctx.font = '24px monospace';
+        ctx.fillText(tactical.result === 'victory' ? 'VICTORY!' : 'DEFEAT', 260, 225);
+
+        ctx.fillStyle = '#888';
+        ctx.font = '12px monospace';
+        ctx.fillText('Press SPACE to continue', 240, 260);
+    }
+
+    // Title
+    ctx.fillStyle = '#a85';
+    ctx.font = '14px monospace';
+    ctx.fillText('◆ TACTICAL BATTLE', 250, 55);
+}
+
+function clickTactical(mx, my) {
+    if (tactical.phase !== 'deploy') return;
+
+    const gridX = 80, gridY = 80, cellW = 80, cellH = 50;
+    const gx = Math.floor((mx - gridX) / cellW);
+    const gy = Math.floor((my - gridY) / cellH);
+
+    // Check unit palette
+    if (my >= 445 && my <= 470) {
+        const idx = Math.floor((mx - 15) / 125);
+        const keys = Object.keys(UNITS);
+        if (idx >= 0 && idx < keys.length) {
+            tactical.selectedUnit = keys[idx];
+            sfxSelect();
+            return;
+        }
+    }
+
+    // Place unit
+    if (gx >= 0 && gx < 6 && gy >= 4 && gy < 6) {
+        const unit = UNITS[tactical.selectedUnit];
+        if (tactical.supply >= unit.cost) {
+            // Check if cell occupied
+            const occupied = tactical.playerUnits.some(u => Math.floor(u.x) === gx && Math.floor(u.y) === gy);
+            if (!occupied) {
+                tactical.playerUnits.push({
+                    ...unit,
+                    x: gx,
+                    y: gy,
+                    team: 'player',
+                    hp: unit.hp
+                });
+                tactical.supply -= unit.cost;
+                sfxPlace();
+            }
+        }
+    }
+}
+
+// ==================== CHASE ====================
+const chase = {
+    px: 320, speed: 6, roadOffset: 0,
+    enemies: [], bullets: [], health: 100,
+    destroyed: 0, distance: 0, spawnTimer: 0
+};
+
+function initChase() {
+    chase.px = 320;
+    chase.speed = 6;
+    chase.enemies = [];
+    chase.bullets = [];
+    chase.health = 100;
+    chase.destroyed = 0;
+    chase.distance = 0;
+}
+
+function updateChase() {
+    if (keys['ArrowLeft']) chase.px = Math.max(160, chase.px - 5);
+    if (keys['ArrowRight']) chase.px = Math.min(480, chase.px + 5);
+
+    chase.roadOffset = (chase.roadOffset + chase.speed) % 80;
+    chase.distance += chase.speed / 12;
+
+    chase.spawnTimer++;
+    if (chase.spawnTimer > 50) {
+        chase.spawnTimer = 0;
+        chase.enemies.push({
+            x: 170 + Math.random() * 300,
+            y: -40,
+            type: Math.random() > 0.5 ? 'chaser' : 'rammer',
+            hp: 2
+        });
+    }
+
+    chase.enemies.forEach(e => {
+        e.y += chase.speed * 0.65;
+        if (e.type === 'rammer') {
+            if (e.x < chase.px - 8) e.x += 1.8;
+            else if (e.x > chase.px + 8) e.x -= 1.8;
+        }
+        if (e.y > 360 && e.y < 430 && Math.abs(e.x - chase.px) < 28) {
+            chase.health -= 0.8;
+            sfxHit();
+        }
+    });
+    chase.enemies = chase.enemies.filter(e => e.y < 500 && e.hp > 0);
+
+    chase.bullets.forEach(b => {
+        b.y -= 14;
+        chase.enemies.forEach(e => {
+            if (Math.abs(b.x - e.x) < 18 && Math.abs(b.y - e.y) < 25) {
+                e.hp--;
+                b.y = -100;
+                sfxHit();
+                if (e.hp <= 0) { chase.destroyed++; sfxExplosion(); }
+            }
+        });
+    });
+    chase.bullets = chase.bullets.filter(b => b.y > -10);
+
+    if (Math.random() > 0.92) sfxEngine();
+}
+
+function drawChase() {
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 180);
+    skyGrad.addColorStop(0, '#223');
+    skyGrad.addColorStop(1, '#445');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 640, 180);
+
+    ctx.fillStyle = '#432';
+    ctx.fillRect(0, 180, 640, 300);
+
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.moveTo(180, 480);
+    ctx.lineTo(460, 480);
+    ctx.lineTo(375, 180);
+    ctx.lineTo(265, 180);
+    ctx.fill();
+
+    ctx.fillStyle = '#555';
+    for (let i = 0; i < 8; i++) {
+        const yy = 180 + ((i * 40 + chase.roadOffset) % 320);
+        const sc = (yy - 180) / 300;
+        ctx.fillRect(320 - 3 - sc * 3, yy, 6 + sc * 6, 12 + sc * 8);
+    }
+
+    chase.enemies.forEach(e => {
+        const sc = Math.max(0.3, (e.y - 80) / 400);
+        ctx.fillStyle = e.type === 'chaser' ? '#633' : '#363';
+        ctx.fillRect(e.x - 18*sc, e.y - 25*sc, 36*sc, 50*sc);
+        if (e.hp < 2) {
+            ctx.fillStyle = '#f80';
+            ctx.fillRect(e.x - 5, e.y - 8, 10, 10);
+        }
+    });
+
+    ctx.fillStyle = '#ff0';
+    chase.bullets.forEach(b => ctx.fillRect(b.x - 2, b.y - 6, 4, 12));
+
+    ctx.fillStyle = '#944';
+    ctx.fillRect(chase.px - 22, 385, 44, 60);
+    ctx.fillStyle = '#722';
+    ctx.fillRect(chase.px - 17, 368, 34, 20);
+    ctx.fillStyle = '#68a';
+    ctx.fillRect(chase.px - 12, 372, 10, 12);
+    ctx.fillRect(chase.px + 2, 372, 10, 12);
+    ctx.fillStyle = '#555';
+    ctx.fillRect(chase.px - 3, 360, 6, 12);
+
+    // HUD
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(8, 8, 180, 55);
+    ctx.strokeStyle = '#444';
+    ctx.strokeRect(8, 8, 180, 55);
+
+    ctx.fillStyle = '#777';
+    ctx.font = '10px monospace';
+    ctx.fillText('HULL', 16, 24);
+    ctx.fillStyle = chase.health > 30 ? '#5a5' : '#a55';
+    ctx.fillRect(50, 14, chase.health, 12);
+    ctx.strokeRect(50, 14, 100, 12);
+
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`DESTROYED: ${chase.destroyed}`, 16, 42);
+    ctx.fillText(`DISTANCE: ${Math.floor(chase.distance)}m`, 16, 56);
+
+    ctx.fillStyle = '#f55';
+    ctx.font = '13px monospace';
+    ctx.fillText('⚠ RAIDERS IN PURSUIT', 420, 25);
+}
+
+// ==================== GAME STATE ====================
+let gameState = 'title';
+let gameStarted = false;
+let demoPhase = 0;
+
+const CUTSCENES = [
+    { // 0: Intro
+        lines: [
+            { char:'luis', name:'LUIS MACHADO', side:'left', text:'Settlement outside Fredericksburg needs work.\nClassic fix-and-trade. Should be easy money.',
+              bg:()=>{ctx.fillStyle='#181512';ctx.fillRect(0,0,640,480);} },
+            { char:'chen', name:'CHEN', side:'right', text:'What\'s the route look like? Any trouble?',
+              bg:()=>{ctx.fillStyle='#181512';ctx.fillRect(0,0,640,480);} },
+            { char:'yolanda', name:'YOLANDA', side:'right', text:'I heard THE CLAIM has been pushing into\nnew territory. We should be careful.',
+              bg:()=>{ctx.fillStyle='#181512';ctx.fillRect(0,0,640,480);} },
+            { char:'luis', name:'LUIS', side:'left', text:'Alright. Let\'s gear up and move out.\nFirst stop: Dusty Flats for supplies.',
+              choices:[
+                {text:'Move out immediately',value:'fast'},
+                {text:'Take time to prepare',value:'slow'},
+                {text:'Scout the route first',value:'scout'}
+              ],
+              bg:()=>{ctx.fillStyle='#181512';ctx.fillRect(0,0,640,480);} }
+        ]
+    },
+    { // 1: After exploration NPC
+        lines: [
+            { char:'merchant', name:'SAL', side:'right', text:'You\'re SHOP people, ain\'t ya? Good.\nI got supplies if you got caps.',
+              bg:()=>{ctx.fillStyle='#151514';ctx.fillRect(0,0,640,480);} },
+            { char:'luis', name:'LUIS', side:'left', text:'What do you know about the road south?',
+              bg:()=>{ctx.fillStyle='#151514';ctx.fillRect(0,0,640,480);} },
+            { char:'merchant', name:'SAL', side:'right', text:'THE CLAIM runs checkpoints now.\nMean bunch. Tax everything that moves.\nYou could fight through, or...',
+              choices:[
+                {text:'We\'ll fight if we have to',value:'fight'},
+                {text:'Is there another way?',value:'avoid'},
+                {text:'Can we pay them off?',value:'pay'}
+              ],
+              bg:()=>{ctx.fillStyle='#151514';ctx.fillRect(0,0,640,480);} },
+            { char:'merchant', name:'SAL', side:'right', text:'Your call. But if you\'re fighting...\nyou\'ll want Maya. Best mechanic around.\nShe can rig up some nasty surprises.',
+              bg:()=>{ctx.fillStyle='#151514';ctx.fillRect(0,0,640,480);} }
+        ]
+    },
+    { // 2: Before tactical
+        lines: [
+            { char:'dustin', name:'DUSTIN', side:'left', text:'CLAIM checkpoint ahead. Six vehicles.\nThey\'ve seen us. No way around now.',
+              bg:()=>{ctx.fillStyle='#1a1510';ctx.fillRect(0,0,640,480);} },
+            { char:'raider', name:'CLAIM CAPTAIN', side:'right', text:'[RADIO] "Well well. Fresh meat.\nPay the toll or we take everything.\nYour choice."',
+              bg:()=>{ctx.fillStyle='#1a1510';ctx.fillRect(0,0,640,480);} },
+            { char:'luis', name:'LUIS', side:'left', text:'Everyone, battle positions.\nWe\'re not paying these bastards.',
+              choices:[
+                {text:'All units forward!',value:'aggressive'},
+                {text:'Defensive formation',value:'defensive'},
+                {text:'Focus their leader',value:'snipe'}
+              ],
+              bg:()=>{ctx.fillStyle='#1a1510';ctx.fillRect(0,0,640,480);} }
+        ]
+    },
+    { // 3: After tactical victory
+        lines: [
+            { char:'yolanda', name:'YOLANDA', side:'right', text:'We broke through! But more are coming!\nReinforcements from the south!',
+              bg:()=>{ctx.fillStyle='#181815';ctx.fillRect(0,0,640,480);} },
+            { char:'chen', name:'CHEN', side:'left', text:'Gun\'s loaded. Dustin, get us out of here.\nI\'ll keep them off our tail.',
+              bg:()=>{ctx.fillStyle='#181815';ctx.fillRect(0,0,640,480);} },
+            { char:'dustin', name:'DUSTIN', side:'left', text:'Hang on to something!',
+              bg:()=>{ctx.fillStyle='#181815';ctx.fillRect(0,0,640,480);} }
+        ]
+    },
+    { // 4: After chase
+        lines: [
+            { char:'luis', name:'LUIS', side:'left', text:'[heavy breathing]\nWe... we made it. Everyone okay?',
+              bg:()=>{ctx.fillStyle='#151a15';ctx.fillRect(0,0,640,480);} },
+            { char:'yolanda', name:'YOLANDA', side:'right', text:'Nothing that can\'t be patched up.\nSettlement\'s just ahead.',
+              bg:()=>{ctx.fillStyle='#151a15';ctx.fillRect(0,0,640,480);} },
+            { char:'chen', name:'CHEN', side:'left', text:'THE CLAIM will remember this.\nWe made enemies today.',
+              bg:()=>{ctx.fillStyle='#151a15';ctx.fillRect(0,0,640,480);} },
+            { char:'luis', name:'LUIS', side:'left', text:'Good. Let them remember.\nTHE SHOP doesn\'t pay tolls.\nTHE SHOP collects them.',
+              bg:()=>{ctx.fillStyle='#151a15';ctx.fillRect(0,0,640,480);} }
+        ]
+    }
+];
+
+function startDemo() {
+    gameStarted = true;
+    demoPhase = 0;
+    gameState = 'cutscene';
+    startCutscene(CUTSCENES[0], () => {
+        gameState = 'exploration';
+        initExplore();
+        startMusic('exploration');
+    });
+    startMusic('cutscene');
+}
+
+// ==================== MAIN LOOP ====================
+function update() {
+    updateVHS();
+
+    if (gameState === 'cutscene') {
+        updateCutscene();
+    } else if (gameState === 'exploration') {
+        updateExplore();
+    } else if (gameState === 'tactical') {
+        updateTactical();
+    } else if (gameState === 'chase') {
+        updateChase();
+        if (chase.health <= 0 || chase.distance > 400) {
+            gameState = 'cutscene';
+            startCutscene(CUTSCENES[4], () => { gameState = 'end'; stopMusic(); });
+            startMusic('cutscene');
+        }
+    }
+}
+
+function draw() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 640, 480);
+
+    if (gameState === 'cutscene') {
+        drawCutscene();
+    } else if (gameState === 'exploration') {
+        drawExplore();
+    } else if (gameState === 'tactical') {
+        drawTactical();
+    } else if (gameState === 'chase') {
+        drawChase();
+    } else if (gameState === 'end') {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, 640, 480);
+
+        ctx.fillStyle = '#a44';
+        ctx.font = '36px monospace';
+        ctx.fillText('AUTOGANG', 220, 160);
+
+        ctx.fillStyle = '#777';
+        ctx.font = '14px monospace';
+        ctx.fillText('DEMO COMPLETE', 255, 210);
+
+        ctx.fillStyle = '#555';
+        ctx.font = '11px monospace';
+        ctx.fillText('You experienced:', 260, 260);
+        ctx.fillStyle = '#5a5';
+        ctx.fillText('✓ Story cutscenes with choices', 220, 285);
+        ctx.fillText('✓ Top-down encampment exploration', 220, 305);
+        ctx.fillText('✓ Tactical auto-battle combat', 220, 325);
+        ctx.fillText('✓ High-speed chase sequence', 220, 345);
+
+        ctx.fillStyle = '#654';
+        ctx.font = '10px monospace';
+        ctx.fillText('Full game: Scavenge. Recruit. Build your gang.', 185, 395);
+        ctx.fillText('Every character unique. Every loss permanent.', 185, 412);
+        ctx.fillText('Hundreds of survivors. One destination: Safety.', 185, 429);
+
+        ctx.fillStyle = '#5a5';
+        ctx.font = '12px monospace';
+        ctx.fillText('Press R to replay', 265, 465);
+    }
+
+    drawVHS();
+}
+
+function gameLoop() {
+    if (gameStarted) { update(); draw(); }
+    requestAnimationFrame(gameLoop);
+}
+
+// ==================== INPUT ====================
+document.addEventListener('keydown', e => {
+    keys[e.key] = true;
+
+    if (!gameStarted && e.key === ' ') {
+        startScreen.style.display = 'none';
+        initAudio();
+        startDemo();
+        return;
+    }
+
+    if (gameState === 'cutscene') {
+        inputCutscene(e.key);
+    } else if (gameState === 'exploration' && e.key === ' ') {
+        if (explore.target) {
+            sfxSelect();
+            demoPhase = 1;
+            gameState = 'cutscene';
+            startCutscene(CUTSCENES[1], () => {
+                gameState = 'cutscene';
+                startCutscene(CUTSCENES[2], () => {
+                    gameState = 'tactical';
+                    initTactical();
+                    startMusic('tactical');
+                });
+            });
+            startMusic('cutscene');
+        }
+    } else if (gameState === 'tactical' && e.key === ' ') {
+        if (tactical.phase === 'deploy' && tactical.playerUnits.length > 0) {
+            tactical.phase = 'battle';
+            tactical.battleLog.push('Battle started!');
+        } else if (tactical.phase === 'result') {
+            gameState = 'cutscene';
+            startCutscene(CUTSCENES[3], () => {
+                gameState = 'chase';
+                initChase();
+                startMusic('chase');
+            });
+            startMusic('cutscene');
+        }
+    } else if (gameState === 'chase' && e.key === ' ') {
+        chase.bullets.push({ x: chase.px, y: 360 });
+        sfxShoot();
+    } else if (gameState === 'end' && (e.key === 'r' || e.key === 'R')) {
+        startDemo();
+    }
+});
+
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    if (!gameStarted) {
+        startScreen.style.display = 'none';
+        initAudio();
+        startDemo();
+        return;
+    }
+
+    if (gameState === 'tactical') {
+        clickTactical(mouseX, mouseY);
+    }
+});
+
+startScreen.addEventListener('click', () => {
+    if (!gameStarted) {
+        startScreen.style.display = 'none';
+        initAudio();
+        startDemo();
+    }
+});
+
+gameLoop();
+</script>
+</body>
+</html>
