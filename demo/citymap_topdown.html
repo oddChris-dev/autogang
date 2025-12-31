@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - City Map</title>
+    <style>
+        @font-face {
+            font-family: 'PressStart2P';
+            src: url('data:font/woff2;base64,d09GMgABAAAAABtAAA4AAAAANGQAABrpAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhYbgRwcKgZgAIFyCBEICqh0pXsLQAABNgIkA0wEIAWDdgcgG7UqFeOSLiBl0+m2CJhQQBWIBGGk//9zEltxcEw1Yx+EGLChJbh6hS3t3tv7AwUVNWWdnD/v3XtnZuf+M3NnlpmVMzsGkP//z7l/Znaup6urqbpZqJO6ZapJ3SRVN/P/f86dO/fOPXem7sze2bu7u7u7u7uzO7u7u7u7s7u7u7u7u7u7u+f9P+fOuXPunDvnzrmZO7Mze/8/d+7Mnf/PnTNzZ+bO7MyZOzN3Zs+dBSgGQIABikHAAAcicBRABhRggQcJdNBBBwN0sMAGF3wIIIQIYkgghRRyyKGAElqooYMeBhhhghk2OOCECx644IYHXvjghx8BBBFCGBFEEUMcCSQRRx5pZJBFDnkUUEQJZVRQRQ111NFAA0200EYHXfTQRx8DDDHECEM
+MMcIYE0wxxQwzbLDDATucccEVN9xxwBFHnHDBFTfcccUdDzzxxAtvfPDFD38EEEIIIYSQQAIJJJBA/P9z/v+5/+fO/T935syZM3Pu3Jk7Z2bO/X/O/X/u3Llz586d+//cOXNmZ87MnTt35s6dO3Pn/n/u3Dk=') format('woff2');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        #gameContainer {
+            background: #1a1a1a;
+            border: 4px solid #666;
+            box-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        #title {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff3366;
+            font-size: 16px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="title">AUTOGANG - CITY MAP</div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        const TILE_SIZE = 16;
+        const MAP_WIDTH = 40;
+        const MAP_HEIGHT = 26;
+        const HUD_HEIGHT = 64;
+
+        // Colors
+        const COLORS = {
+            bg: '#8B7355',
+            street: '#4A5F7F',
+            streetLine: '#6B8FAF',
+            building: '#5A4A3A',
+            buildingDark: '#3A2A1A',
+            grass: '#6B8E54',
+            player: '#FFD700',
+            npc1: '#FF4444',
+            npc2: '#44FF44',
+            npc3: '#4444FF',
+            npc4: '#FF44FF',
+            locationText: '#FF3366',
+            hudBg: '#000000',
+            hudText: '#FFFFFF',
+            healthBar: '#33FF33',
+            healthBg: '#333333',
+        };
+
+        // Tile types
+        const TILE = {
+            STREET: 0,
+            BUILDING: 1,
+            GRASS: 2,
+            STREET_H: 3,
+            STREET_V: 4,
+        };
+
+        // Locations
+        const locations = [
+            { name: 'MEGA MALL', x: 5, y: 3, w: 4, h: 3 },
+            { name: 'GAS STATION', x: 15, y: 2, w: 3, h: 2 },
+            { name: 'CLINIC', x: 25, y: 4, w: 3, h: 2 },
+            { name: 'SALVAGE YARD', x: 33, y: 3, w: 5, h: 4 },
+            { name: 'THE SHOP HQ', x: 8, y: 13, w: 4, h: 3 },
+            { name: 'RAIDER CAMP', x: 28, y: 15, w: 5, h: 4 },
+        ];
+
+        // Generate city map
+        function generateMap() {
+            const map = [];
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                map[y] = [];
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    map[y][x] = TILE.GRASS;
+                }
+            }
+
+            // Add horizontal streets (every 6 tiles)
+            for (let y = 8; y < MAP_HEIGHT; y += 6) {
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    map[y][x] = TILE.STREET_H;
+                }
+            }
+
+            // Add vertical streets (every 8 tiles)
+            for (let x = 10; x < MAP_WIDTH; x += 8) {
+                for (let y = 0; y < MAP_HEIGHT; y++) {
+                    map[y][x] = TILE.STREET_V;
+                }
+            }
+
+            // Add buildings at locations
+            locations.forEach(loc => {
+                for (let y = loc.y; y < loc.y + loc.h; y++) {
+                    for (let x = loc.x; x < loc.x + loc.w; x++) {
+                        if (y >= 0 && y < MAP_HEIGHT && x >= 0 && x < MAP_WIDTH) {
+                            map[y][x] = TILE.BUILDING;
+                        }
+                    }
+                }
+            });
+
+            return map;
+        }
+
+        const map = generateMap();
+
+        // Player
+        const player = {
+            x: 20,
+            y: 10,
+            speed: 1,
+            color: COLORS.player,
+        };
+
+        // NPCs
+        const npcs = [
+            { x: 12, y: 9, vx: 0, vy: 0, color: COLORS.npc1, timer: 0 },
+            { x: 22, y: 14, vx: 0, vy: 0, color: COLORS.npc2, timer: 0 },
+            { x: 30, y: 8, vx: 0, vy: 0, color: COLORS.npc3, timer: 0 },
+            { x: 15, y: 18, vx: 0, vy: 0, color: COLORS.npc4, timer: 0 },
+            { x: 35, y: 12, vx: 0, vy: 0, color: COLORS.npc1, timer: 0 },
+            { x: 8, y: 20, vx: 0, vy: 0, color: COLORS.npc2, timer: 0 },
+        ];
+
+        // Game state
+        const keys = {};
+        let health = 85;
+        let counter = 956;
+        let power = 67;
+        let nearLocation = null;
+
+        // Input handling
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            e.preventDefault();
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        // Check if tile is walkable
+        function isWalkable(x, y) {
+            if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return false;
+            const tile = map[y][x];
+            return tile !== TILE.BUILDING;
+        }
+
+        // Update player
+        function updatePlayer() {
+            let newX = player.x;
+            let newY = player.y;
+
+            if (keys['ArrowUp'] || keys['w'] || keys['W']) newY -= player.speed;
+            if (keys['ArrowDown'] || keys['s'] || keys['S']) newY += player.speed;
+            if (keys['ArrowLeft'] || keys['a'] || keys['A']) newX -= player.speed;
+            if (keys['ArrowRight'] || keys['d'] || keys['D']) newX += player.speed;
+
+            // Check collision
+            if (isWalkable(Math.floor(newX), Math.floor(newY))) {
+                player.x = newX;
+                player.y = newY;
+            }
+
+            // Clamp to map bounds
+            player.x = Math.max(0, Math.min(MAP_WIDTH - 1, player.x));
+            player.y = Math.max(0, Math.min(MAP_HEIGHT - 1, player.y));
+
+            // Check nearby locations
+            nearLocation = null;
+            locations.forEach(loc => {
+                const centerX = loc.x + loc.w / 2;
+                const centerY = loc.y + loc.h / 2;
+                const dist = Math.sqrt((player.x - centerX) ** 2 + (player.y - centerY) ** 2);
+                if (dist < 5) {
+                    nearLocation = loc.name;
+                }
+            });
+        }
+
+        // Update NPCs
+        function updateNPCs() {
+            npcs.forEach(npc => {
+                npc.timer++;
+
+                // Change direction randomly every 60 frames
+                if (npc.timer % 60 === 0) {
+                    const directions = [
+                        { vx: 0.5, vy: 0 },
+                        { vx: -0.5, vy: 0 },
+                        { vx: 0, vy: 0.5 },
+                        { vx: 0, vy: -0.5 },
+                        { vx: 0, vy: 0 },
+                    ];
+                    const dir = directions[Math.floor(Math.random() * directions.length)];
+                    npc.vx = dir.vx;
+                    npc.vy = dir.vy;
+                }
+
+                // Move NPC
+                const newX = npc.x + npc.vx;
+                const newY = npc.y + npc.vy;
+
+                if (isWalkable(Math.floor(newX), Math.floor(newY))) {
+                    npc.x = newX;
+                    npc.y = newY;
+                } else {
+                    // Hit obstacle, change direction
+                    npc.vx = -npc.vx;
+                    npc.vy = -npc.vy;
+                }
+
+                // Clamp to bounds
+                npc.x = Math.max(0, Math.min(MAP_WIDTH - 1, npc.x));
+                npc.y = Math.max(0, Math.min(MAP_HEIGHT - 1, npc.y));
+            });
+        }
+
+        // Draw tile
+        function drawTile(x, y, type) {
+            const px = x * TILE_SIZE;
+            const py = y * TILE_SIZE;
+
+            switch (type) {
+                case TILE.GRASS:
+                    ctx.fillStyle = COLORS.grass;
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    // Add texture
+                    if ((x + y) % 3 === 0) {
+                        ctx.fillStyle = '#5A7E44';
+                        ctx.fillRect(px + 6, py + 6, 2, 2);
+                    }
+                    break;
+
+                case TILE.STREET_H:
+                    ctx.fillStyle = COLORS.street;
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    // Street line
+                    ctx.fillStyle = COLORS.streetLine;
+                    ctx.fillRect(px, py + 7, TILE_SIZE, 2);
+                    break;
+
+                case TILE.STREET_V:
+                    ctx.fillStyle = COLORS.street;
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    // Street line
+                    ctx.fillStyle = COLORS.streetLine;
+                    ctx.fillRect(px + 7, py, 2, TILE_SIZE);
+                    break;
+
+                case TILE.BUILDING:
+                    ctx.fillStyle = COLORS.building;
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    ctx.fillStyle = COLORS.buildingDark;
+                    ctx.fillRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                    // Windows
+                    ctx.fillStyle = '#FFD700';
+                    if (Math.random() > 0.7) {
+                        ctx.fillRect(px + 4, py + 4, 2, 2);
+                    }
+                    break;
+            }
+        }
+
+        // Draw map
+        function drawMap() {
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    drawTile(x, y, map[y][x]);
+                }
+            }
+        }
+
+        // Draw location labels
+        function drawLocationLabels() {
+            ctx.font = 'bold 8px "Courier New"';
+            ctx.fillStyle = COLORS.locationText;
+            ctx.textAlign = 'center';
+
+            locations.forEach(loc => {
+                const centerX = (loc.x + loc.w / 2) * TILE_SIZE;
+                const centerY = (loc.y + loc.h / 2) * TILE_SIZE;
+
+                // Draw location name on building
+                const lines = loc.name.split(' ');
+                lines.forEach((line, i) => {
+                    // Text shadow
+                    ctx.fillStyle = '#000';
+                    ctx.fillText(line, centerX + 1, centerY + i * 8 + 1);
+                    // Text
+                    ctx.fillStyle = COLORS.locationText;
+                    ctx.fillText(line, centerX, centerY + i * 8);
+                });
+            });
+        }
+
+        // Draw character sprite
+        function drawCharacter(x, y, color, isPlayer = false) {
+            const px = Math.floor(x * TILE_SIZE);
+            const py = Math.floor(y * TILE_SIZE);
+
+            // Character is a small 8x8 sprite
+            ctx.fillStyle = color;
+
+            // Head
+            ctx.fillRect(px + 4, py + 2, 8, 6);
+            // Body
+            ctx.fillRect(px + 4, py + 8, 8, 6);
+
+            // Outline
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px + 4, py + 2, 8, 6);
+            ctx.strokeRect(px + 4, py + 8, 8, 6);
+
+            if (isPlayer) {
+                // Draw "YOU ARE HERE" arrow above player
+                ctx.fillStyle = COLORS.locationText;
+                ctx.font = 'bold 6px "Courier New"';
+                ctx.textAlign = 'center';
+                ctx.fillText('YOU ARE', px + 8, py - 12);
+                ctx.fillText('HERE', px + 8, py - 6);
+
+                // Arrow
+                ctx.beginPath();
+                ctx.moveTo(px + 8, py - 2);
+                ctx.lineTo(px + 6, py);
+                ctx.lineTo(px + 10, py);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        // Draw street labels
+        function drawStreetLabels() {
+            const streetY = CANVAS_HEIGHT - HUD_HEIGHT - 20;
+            ctx.font = 'bold 8px "Courier New"';
+            ctx.fillStyle = COLORS.hudText;
+            ctx.textAlign = 'center';
+
+            const streets = ['A ST', 'B ST', 'C ST', 'D ST'];
+            const spacing = CANVAS_WIDTH / (streets.length + 1);
+
+            streets.forEach((street, i) => {
+                const x = spacing * (i + 1);
+                ctx.fillStyle = '#000';
+                ctx.fillText(street, x + 1, streetY + 1);
+                ctx.fillStyle = COLORS.streetLine;
+                ctx.fillText(street, x, streetY);
+            });
+        }
+
+        // Draw HUD
+        function drawHUD() {
+            const hudY = CANVAS_HEIGHT - HUD_HEIGHT;
+
+            // HUD background
+            ctx.fillStyle = COLORS.hudBg;
+            ctx.fillRect(0, hudY, CANVAS_WIDTH, HUD_HEIGHT);
+
+            // Border
+            ctx.strokeStyle = COLORS.street;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, hudY, CANVAS_WIDTH, HUD_HEIGHT);
+
+            // Health bar
+            ctx.font = 'bold 10px "Courier New"';
+            ctx.fillStyle = COLORS.hudText;
+            ctx.textAlign = 'left';
+            ctx.fillText('HEALTH', 20, hudY + 20);
+
+            // Health bar background
+            ctx.fillStyle = COLORS.healthBg;
+            ctx.fillRect(20, hudY + 25, 120, 12);
+
+            // Health bar fill
+            ctx.fillStyle = COLORS.healthBar;
+            ctx.fillRect(20, hudY + 25, (health / 100) * 120, 12);
+
+            // Health percentage
+            ctx.fillStyle = COLORS.hudText;
+            ctx.fillText(`${health}%`, 150, hudY + 35);
+
+            // Counter
+            ctx.textAlign = 'center';
+            ctx.fillText('SCRAP', CANVAS_WIDTH / 2, hudY + 20);
+            ctx.font = 'bold 14px "Courier New"';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(counter.toString(), CANVAS_WIDTH / 2, hudY + 38);
+
+            // Power
+            ctx.font = 'bold 10px "Courier New"';
+            ctx.fillStyle = COLORS.hudText;
+            ctx.textAlign = 'right';
+            ctx.fillText('POWER', CANVAS_WIDTH - 20, hudY + 20);
+            ctx.font = 'bold 14px "Courier New"';
+            ctx.fillStyle = '#FF3366';
+            ctx.fillText(`${power}%`, CANVAS_WIDTH - 20, hudY + 38);
+        }
+
+        // Draw near location popup
+        function drawNearLocation() {
+            if (!nearLocation) return;
+
+            const popupWidth = 200;
+            const popupHeight = 40;
+            const x = CANVAS_WIDTH / 2 - popupWidth / 2;
+            const y = 50;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(x, y, popupWidth, popupHeight);
+
+            // Border
+            ctx.strokeStyle = COLORS.locationText;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, popupWidth, popupHeight);
+
+            // Text
+            ctx.font = 'bold 10px "Courier New"';
+            ctx.fillStyle = COLORS.locationText;
+            ctx.textAlign = 'center';
+            ctx.fillText(nearLocation, CANVAS_WIDTH / 2, y + 25);
+        }
+
+        // Main game loop
+        function gameLoop() {
+            // Update
+            updatePlayer();
+            updateNPCs();
+
+            // Clear canvas
+            ctx.fillStyle = COLORS.bg;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT - HUD_HEIGHT);
+
+            // Draw
+            drawMap();
+            drawLocationLabels();
+
+            // Draw NPCs
+            npcs.forEach(npc => {
+                drawCharacter(npc.x, npc.y, npc.color);
+            });
+
+            // Draw player
+            drawCharacter(player.x, player.y, player.color, true);
+
+            // Draw street labels
+            drawStreetLabels();
+
+            // Draw HUD
+            drawHUD();
+
+            // Draw near location
+            drawNearLocation();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ESC to return to menu
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                window.location.href = 'index.html';
+            }
+        });
+
+        // Start game
+        gameLoop();
+
+        // Simulate counter changes
+        setInterval(() => {
+            counter += Math.floor(Math.random() * 10) - 3;
+            counter = Math.max(0, counter);
+        }, 2000);
+
+        // Simulate health changes
+        setInterval(() => {
+            health += Math.floor(Math.random() * 5) - 2;
+            health = Math.max(0, Math.min(100, health));
+        }, 3000);
+
+        // Simulate power changes
+        setInterval(() => {
+            power += Math.floor(Math.random() * 8) - 3;
+            power = Math.max(0, Math.min(100, power));
+        }, 2500);
+    </script>
+</body>
+</html>

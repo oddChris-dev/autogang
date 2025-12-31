@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - Demo Menu</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @font-face {
+            font-family: 'PixelFont';
+            src: local('Courier New');
+        }
+
+        body {
+            background: #0a0a0a;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* CRT Scanlines */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* VHS Noise Overlay */
+        .vhs-noise {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Title Section */
+        .title-section {
+            text-align: center;
+            margin-bottom: 50px;
+            padding: 30px;
+            background: linear-gradient(180deg, #1a0a0a 0%, #0a0a0a 100%);
+            border: 4px solid #ff4444;
+            box-shadow: 0 0 30px rgba(255, 68, 68, 0.3), inset 0 0 60px rgba(0, 0, 0, 0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .title-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            100% { left: 100%; }
+        }
+
+        h1 {
+            font-size: 72px;
+            color: #ff4444;
+            text-shadow:
+                4px 4px 0 #880000,
+                8px 8px 0 #440000,
+                0 0 30px rgba(255, 68, 68, 0.5);
+            letter-spacing: 8px;
+            margin-bottom: 15px;
+            animation: titlePulse 2s ease-in-out infinite;
+        }
+
+        @keyframes titlePulse {
+            0%, 100% { text-shadow: 4px 4px 0 #880000, 8px 8px 0 #440000, 0 0 30px rgba(255, 68, 68, 0.5); }
+            50% { text-shadow: 4px 4px 0 #880000, 8px 8px 0 #440000, 0 0 50px rgba(255, 68, 68, 0.8); }
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: #888;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+
+        .tagline {
+            font-size: 14px;
+            color: #ff8844;
+            margin-top: 15px;
+            font-style: italic;
+        }
+
+        /* Section Headers */
+        .section-header {
+            font-size: 24px;
+            color: #ffaa44;
+            margin: 40px 0 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ffaa44;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        /* Demo Grid */
+        .demo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .demo-card {
+            background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+            border: 3px solid #333;
+            padding: 0;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .demo-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #ff4444, #ffaa44, #44ff44, #4444ff, #ff4444);
+            background-size: 200% 100%;
+            animation: rainbowSlide 3s linear infinite;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        @keyframes rainbowSlide {
+            100% { background-position: 200% 0; }
+        }
+
+        .demo-card:hover {
+            border-color: #ff4444;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(255, 68, 68, 0.3);
+        }
+
+        .demo-card:hover::before {
+            opacity: 1;
+        }
+
+        .card-preview {
+            height: 120px;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            border-bottom: 2px solid #333;
+        }
+
+        .card-content {
+            padding: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            color: #fff;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .card-desc {
+            font-size: 12px;
+            color: #888;
+            line-height: 1.5;
+        }
+
+        .card-type {
+            display: inline-block;
+            font-size: 10px;
+            color: #000;
+            background: #ffaa44;
+            padding: 2px 8px;
+            margin-top: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .card-type.story { background: #44aaff; }
+        .card-type.gameplay { background: #44ff88; }
+        .card-type.interactive { background: #ff44aa; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #444;
+            font-size: 12px;
+            border-top: 1px solid #222;
+            margin-top: 40px;
+        }
+
+        .footer .version {
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .controls-hint {
+            background: #111;
+            border: 2px solid #333;
+            padding: 15px 25px;
+            margin-top: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .controls-hint span {
+            color: #ffaa44;
+        }
+
+        /* Flickering effect for some elements */
+        .flicker {
+            animation: flicker 0.15s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.95; }
+        }
+
+        /* NEW badge */
+        .badge-new {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ff4444;
+            color: #fff;
+            font-size: 10px;
+            padding: 3px 8px;
+            font-weight: bold;
+            animation: badgePulse 1s ease-in-out infinite;
+        }
+
+        @keyframes badgePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        /* VHS tracking line animation */
+        .tracking-line {
+            position: fixed;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 998;
+            animation: trackingMove 8s linear infinite;
+        }
+
+        @keyframes trackingMove {
+            0% { top: -10px; }
+            100% { top: 110%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="vhs-noise"></div>
+    <div class="tracking-line"></div>
+
+    <div class="container">
+        <div class="title-section">
+            <h1 class="flicker">AUTOGANG</h1>
+            <p class="subtitle">Demo Collection</p>
+            <p class="tagline">"Oregon Trail meets Mad Max"</p>
+        </div>
+
+        <h2 class="section-header">Story Demos</h2>
+        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">8-bit narrative experiences with Ninja Gaiden-style cutscenes</p>
+
+        <div class="demo-grid">
+            <a href="repo_men_demo.html" class="demo-card">
+                <div class="card-preview" style="background: linear-gradient(180deg, #1a0a0a, #0a0505);">
+                    <span style="color: #ff4444;">&#9876;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">The Repo Men</h3>
+                    <p class="card-desc">Vehicle acquisition crew faces moral dilemmas in the wasteland. Justice vs survival.</p>
+                    <span class="card-type story">Story</span>
+                </div>
+            </a>
+
+            <a href="pediatric_ward_demo.html" class="demo-card">
+                <div class="card-preview" style="background: linear-gradient(180deg, #0a1a0a, #050a05);">
+                    <span style="color: #44ff88;">&#9764;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">The Pediatric Ward</h3>
+                    <p class="card-desc">Medical caravan races to save dying children. A desperate journey north.</p>
+                    <span class="card-type story">Story</span>
+                </div>
+            </a>
+
+            <a href="northbound_demo.html" class="demo-card">
+                <div class="card-preview" style="background: linear-gradient(180deg, #0a0a1a, #05050a);">
+                    <span style="color: #4488ff;">&#9729;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">Northbound</h3>
+                    <p class="card-desc">Climate refugees flee from Texas to Minnesota. Escape the rising heat.</p>
+                    <span class="card-type story">Story</span>
+                </div>
+            </a>
+        </div>
+
+        <h2 class="section-header">Gameplay Demos</h2>
+        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">Interactive proof-of-concept gameplay modes</p>
+
+        <div class="demo-grid">
+            <a href="sidescroll_city.html" class="demo-card">
+                <span class="badge-new">NEW</span>
+                <div class="card-preview" style="background: linear-gradient(180deg, #1a1a0a, #0a0a05);">
+                    <span style="color: #ffaa44;">&#127751;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">City Explorer</h3>
+                    <p class="card-desc">Side-scrolling city exploration. Talk to NPCs, discover the urban wasteland.</p>
+                    <span class="card-type gameplay">Gameplay</span>
+                </div>
+            </a>
+
+            <a href="citymap_topdown.html" class="demo-card">
+                <span class="badge-new">NEW</span>
+                <div class="card-preview" style="background: linear-gradient(180deg, #0a1a1a, #050a0a);">
+                    <span style="color: #44ffff;">&#9635;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">City Map</h3>
+                    <p class="card-desc">Top-down city navigation. Explore districts, find locations, plan your route.</p>
+                    <span class="card-type gameplay">Gameplay</span>
+                </div>
+            </a>
+
+            <a href="garage_upgrade.html" class="demo-card">
+                <span class="badge-new">NEW</span>
+                <div class="card-preview" style="background: linear-gradient(180deg, #1a0a1a, #0a050a);">
+                    <span style="color: #ff44ff;">&#9881;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">The Garage</h3>
+                    <p class="card-desc">Vehicle customization screen. Upgrade armor, weapons, and performance.</p>
+                    <span class="card-type gameplay">Gameplay</span>
+                </div>
+            </a>
+
+            <a href="trading_post.html" class="demo-card">
+                <span class="badge-new">NEW</span>
+                <div class="card-preview" style="background: linear-gradient(180deg, #1a1a1a, #0a0a0a);">
+                    <span style="color: #ffff44;">&#9878;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">Trading Post</h3>
+                    <p class="card-desc">Barter and trade interface. Buy, sell, and negotiate for supplies.</p>
+                    <span class="card-type gameplay">Gameplay</span>
+                </div>
+            </a>
+        </div>
+
+        <h2 class="section-header">Full Interactive Demos</h2>
+        <p style="color: #666; margin-bottom: 20px; font-size: 14px;">Complete experiences with multiple gameplay modes</p>
+
+        <div class="demo-grid">
+            <a href="full_demo_v2.html" class="demo-card">
+                <div class="card-preview" style="background: linear-gradient(180deg, #1a0a0a, #0a0505); position: relative;">
+                    <span style="color: #ff4444; font-size: 36px;">&#9733;</span>
+                    <span style="position: absolute; bottom: 5px; right: 10px; font-size: 10px; color: #666;">RECOMMENDED</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">Full Demo V2</h3>
+                    <p class="card-desc">Complete experience: cutscenes, exploration, chase sequences, tactical battles. VHS effects.</p>
+                    <span class="card-type interactive">Interactive</span>
+                </div>
+            </a>
+
+            <a href="full_demo_vhs.html" class="demo-card">
+                <div class="card-preview" style="background: linear-gradient(180deg, #0a0a1a, #05050a);">
+                    <span style="color: #8888ff;">&#128252;</span>
+                </div>
+                <div class="card-content">
+                    <h3 class="card-title">Full Demo (VHS)</h3>
+                    <p class="card-desc">Original full demo with VHS tape effects and multiple mini-games.</p>
+                    <span class="card-type interactive">Interactive</span>
+                </div>
+            </a>
+        </div>
+
+        <div class="controls-hint">
+            <span>Arrow Keys</span> to move | <span>E</span> or <span>Space</span> to interact | <span>ESC</span> to return to menu
+        </div>
+
+        <div class="footer">
+            <p class="version">AUTOGANG Demo Collection v0.1</p>
+            <p>Post-apocalyptic survival RPG - "Oregon Trail meets Mad Max"</p>
+            <p style="margin-top: 10px; color: #333;">Press ESC in any demo to return here</p>
+        </div>
+    </div>
+
+    <script>
+        // Add some VHS-style random glitches
+        function randomGlitch() {
+            const cards = document.querySelectorAll('.demo-card');
+            const randomCard = cards[Math.floor(Math.random() * cards.length)];
+            randomCard.style.transform = `translateX(${Math.random() * 4 - 2}px)`;
+            setTimeout(() => {
+                randomCard.style.transform = '';
+            }, 50);
+        }
+
+        setInterval(randomGlitch, 3000);
+
+        // Tracking line randomization
+        const trackingLine = document.querySelector('.tracking-line');
+        setInterval(() => {
+            trackingLine.style.opacity = Math.random() > 0.7 ? '1' : '0.3';
+            trackingLine.style.height = Math.random() > 0.9 ? '8px' : '3px';
+        }, 500);
+    </script>
+</body>
+</html>

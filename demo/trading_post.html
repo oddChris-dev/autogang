@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - Trading Post</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+            border: 4px solid #333;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            cursor: pointer;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #0f0;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        #start-screen h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #ffaa00;
+        }
+
+        #start-screen h2 {
+            font-size: 20px;
+            margin-bottom: 40px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .crt-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <div class="scanlines"></div>
+        <div class="crt-effect"></div>
+        <div id="start-screen">
+            <h1>AUTOGANG</h1>
+            <h2>SAL'S SALVAGE</h2>
+            <p style="color: #0a0; font-size: 12px;">[ CLICK TO START TRADING ]</p>
+        </div>
+    </div>
+
+    <script>
+// ============================================
+// AUTOGANG - TRADING POST DEMO
+// ============================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+
+// Audio Context
+let audioCtx = null;
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+// Sound effects
+function playBeep(freq = 440, duration = 0.1, type = 'square') {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playSelectBeep() {
+    playBeep(660, 0.06);
+}
+
+function playMoveBeep() {
+    playBeep(440, 0.04);
+    setTimeout(() => playBeep(550, 0.05), 40);
+}
+
+function playTradeSuccess() {
+    playBeep(440, 0.1);
+    setTimeout(() => playBeep(550, 0.1), 100);
+    setTimeout(() => playBeep(660, 0.15), 200);
+}
+
+function playTradeFail() {
+    playBeep(220, 0.2, 'sawtooth');
+}
+
+function playHoverBeep() {
+    playBeep(330, 0.03);
+}
+
+// Color palette
+const COLORS = {
+    black: '#000000',
+    darkGray: '#333333',
+    gray: '#666666',
+    lightGray: '#999999',
+    white: '#ffffff',
+    red: '#ff3333',
+    darkRed: '#991111',
+    orange: '#ffaa00',
+    yellow: '#ffff33',
+    green: '#33ff33',
+    darkGreen: '#118811',
+    cyan: '#33ffff',
+    blue: '#3333ff',
+    darkBlue: '#111188',
+    purple: '#9933ff',
+    brown: '#774411',
+    darkBrown: '#442200'
+};
+
+// Item categories
+const CATEGORIES = {
+    FOOD: 0,
+    MEDICINE: 1,
+    AMMO: 2,
+    PARTS: 3,
+    FUEL: 4,
+    GEAR: 5
+};
+
+// Item database
+const ITEM_TYPES = {
+    // FOOD
+    WATER: { name: 'WATER', category: CATEGORIES.FOOD, baseValue: 5, color: COLORS.cyan },
+    BEANS: { name: 'BEANS', category: CATEGORIES.FOOD, baseValue: 3, color: COLORS.brown },
+    JERKY: { name: 'JERKY', category: CATEGORIES.FOOD, baseValue: 4, color: COLORS.darkRed },
+    RATIONS: { name: 'MRE', category: CATEGORIES.FOOD, baseValue: 8, color: COLORS.darkGreen },
+
+    // MEDICINE
+    STIMPAK: { name: 'STIMPAK', category: CATEGORIES.MEDICINE, baseValue: 15, color: COLORS.red },
+    ANTIBIO: { name: 'ANTIBIOTICS', category: CATEGORIES.MEDICINE, baseValue: 20, color: COLORS.white },
+    BANDAGE: { name: 'BANDAGE', category: CATEGORIES.MEDICINE, baseValue: 5, color: COLORS.lightGray },
+
+    // AMMO
+    BULLETS: { name: '9MM', category: CATEGORIES.AMMO, baseValue: 2, color: COLORS.orange },
+    SHELLS: { name: 'SHELLS', category: CATEGORIES.AMMO, baseValue: 3, color: COLORS.red },
+
+    // PARTS
+    SCRAP: { name: 'SCRAP', category: CATEGORIES.PARTS, baseValue: 1, color: COLORS.gray },
+    BATTERY: { name: 'BATTERY', category: CATEGORIES.PARTS, baseValue: 12, color: COLORS.yellow },
+    ENGINE: { name: 'ENGINE', category: CATEGORIES.PARTS, baseValue: 50, color: COLORS.darkGray },
+    TIRE: { name: 'TIRE', category: CATEGORIES.PARTS, baseValue: 8, color: COLORS.black },
+
+    // FUEL
+    GASOLINE: { name: 'GASOLINE', category: CATEGORIES.FUEL, baseValue: 10, color: COLORS.orange },
+    OIL: { name: 'OIL', category: CATEGORIES.FUEL, baseValue: 6, color: COLORS.darkBrown },
+
+    // GEAR
+    KNIFE: { name: 'KNIFE', category: CATEGORIES.GEAR, baseValue: 10, color: COLORS.lightGray },
+    GOGGLES: { name: 'GOGGLES', category: CATEGORIES.GEAR, baseValue: 7, color: COLORS.cyan },
+    GLOVES: { name: 'GLOVES', category: CATEGORIES.GEAR, baseValue: 5, color: COLORS.brown }
+};
+
+// Draw pixel art icons for items
+function drawItemIcon(x, y, itemType, scale = 1) {
+    const s = scale;
+    ctx.save();
+
+    switch(itemType.name) {
+        case 'WATER':
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillRect(x + 2*s, y, 6*s, 10*s);
+            ctx.fillRect(x + 3*s, y - 1*s, 4*s, 1*s);
+            ctx.fillStyle = COLORS.blue;
+            ctx.fillRect(x + 3*s, y + 2*s, 4*s, 6*s);
+            break;
+
+        case 'BEANS':
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(x, y, 10*s, 8*s);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(x + 2*s, y + 2*s, 6*s, 4*s);
+            break;
+
+        case 'JERKY':
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(x + 1*s, y, 8*s, 3*s);
+            ctx.fillRect(x + 2*s, y + 3*s, 6*s, 3*s);
+            ctx.fillRect(x + 3*s, y + 6*s, 4*s, 2*s);
+            break;
+
+        case 'MRE':
+            ctx.fillStyle = COLORS.darkGreen;
+            ctx.fillRect(x, y, 10*s, 8*s);
+            ctx.fillStyle = COLORS.lightGray;
+            ctx.fillRect(x + 2*s, y + 2*s, 6*s, 1*s);
+            ctx.fillRect(x + 2*s, y + 5*s, 6*s, 1*s);
+            break;
+
+        case 'STIMPAK':
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(x + 4*s, y, 2*s, 6*s);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(x + 2*s, y + 6*s, 6*s, 4*s);
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(x + 3*s, y + 7*s, 4*s, 2*s);
+            break;
+
+        case 'ANTIBIOTICS':
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(x, y, 10*s, 8*s);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(x + 3*s, y + 2*s, 4*s, 1*s);
+            ctx.fillRect(x + 3*s, y + 5*s, 4*s, 1*s);
+            break;
+
+        case 'BANDAGE':
+            ctx.fillStyle = COLORS.white;
+            ctx.fillRect(x, y + 2*s, 10*s, 6*s);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(x + 4*s, y + 3*s, 2*s, 4*s);
+            break;
+
+        case '9MM':
+            ctx.fillStyle = COLORS.orange;
+            for (let i = 0; i < 3; i++) {
+                ctx.fillRect(x + i*3*s, y + 2*s, 2*s, 6*s);
+            }
+            break;
+
+        case 'SHELLS':
+            ctx.fillStyle = COLORS.red;
+            for (let i = 0; i < 2; i++) {
+                ctx.fillRect(x + i*5*s, y, 4*s, 8*s);
+                ctx.fillStyle = COLORS.orange;
+                ctx.fillRect(x + i*5*s + 1*s, y, 2*s, 3*s);
+                ctx.fillStyle = COLORS.red;
+            }
+            break;
+
+        case 'SCRAP':
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(x, y, 4*s, 4*s);
+            ctx.fillRect(x + 5*s, y + 3*s, 5*s, 5*s);
+            ctx.fillRect(x + 2*s, y + 5*s, 3*s, 3*s);
+            break;
+
+        case 'BATTERY':
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(x, y + 2*s, 10*s, 6*s);
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(x + 3*s, y, 4*s, 2*s);
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(x + 2*s, y + 4*s, 2*s, 2*s);
+            ctx.fillStyle = COLORS.blue;
+            ctx.fillRect(x + 6*s, y + 4*s, 2*s, 2*s);
+            break;
+
+        case 'ENGINE':
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(x, y, 10*s, 8*s);
+            ctx.fillStyle = COLORS.gray;
+            ctx.fillRect(x + 2*s, y + 1*s, 6*s, 6*s);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(x + 3*s, y + 2*s, 4*s, 1*s);
+            ctx.fillRect(x + 3*s, y + 5*s, 4*s, 1*s);
+            break;
+
+        case 'TIRE':
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(x, y, 10*s, 10*s);
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(x + 3*s, y + 3*s, 4*s, 4*s);
+            break;
+
+        case 'GASOLINE':
+            ctx.fillStyle = COLORS.red;
+            ctx.fillRect(x, y, 10*s, 10*s);
+            ctx.fillStyle = COLORS.darkRed;
+            ctx.fillRect(x + 2*s, y + 2*s, 6*s, 6*s);
+            ctx.fillStyle = COLORS.orange;
+            ctx.fillRect(x + 7*s, y + 1*s, 2*s, 3*s);
+            break;
+
+        case 'OIL':
+            ctx.fillStyle = COLORS.darkBrown;
+            ctx.fillRect(x + 1*s, y, 8*s, 10*s);
+            ctx.fillRect(x + 3*s, y - 1*s, 4*s, 2*s);
+            ctx.fillStyle = COLORS.yellow;
+            ctx.fillRect(x + 3*s, y + 2*s, 4*s, 4*s);
+            break;
+
+        case 'KNIFE':
+            ctx.fillStyle = COLORS.lightGray;
+            ctx.fillRect(x, y, 10*s, 2*s);
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(x + 7*s, y - 1*s, 3*s, 4*s);
+            break;
+
+        case 'GOGGLES':
+            ctx.fillStyle = COLORS.darkGray;
+            ctx.fillRect(x, y + 2*s, 10*s, 5*s);
+            ctx.fillStyle = COLORS.cyan;
+            ctx.fillRect(x + 1*s, y + 3*s, 3*s, 3*s);
+            ctx.fillRect(x + 6*s, y + 3*s, 3*s, 3*s);
+            break;
+
+        case 'GLOVES':
+            ctx.fillStyle = COLORS.brown;
+            ctx.fillRect(x, y, 5*s, 8*s);
+            ctx.fillRect(x + 5*s, y, 5*s, 8*s);
+            ctx.fillRect(x, y + 5*s, 10*s, 3*s);
+            break;
+    }
+
+    ctx.restore();
+}
+
+// Trader portrait
+function drawTraderPortrait(x, y, name = "SAL") {
+    // Face
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x + 10, y + 10, 40, 40);
+
+    // Hair
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 8, y + 8, 44, 15);
+
+    // Eyes
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x + 18, y + 25, 6, 6);
+    ctx.fillRect(x + 36, y + 25, 6, 6);
+
+    // Scar
+    ctx.fillStyle = COLORS.red;
+    ctx.fillRect(x + 25, y + 20, 2, 15);
+
+    // Beard
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x + 15, y + 40, 30, 10);
+
+    // Shoulders
+    ctx.fillStyle = COLORS.brown;
+    ctx.fillRect(x, y + 50, 60, 20);
+
+    // Name plate
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x - 10, y + 75, 80, 20);
+    ctx.strokeStyle = COLORS.orange;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - 10, y + 75, 80, 20);
+
+    ctx.fillStyle = COLORS.orange;
+    ctx.font = '14px monospace';
+    const nameText = name.toUpperCase() + "'S SALVAGE";
+    ctx.fillText(nameText, x - 5, y + 89);
+}
+
+// Game state
+let gameStarted = false;
+let playerCaps = 150;
+let traderReputation = 50; // 0-100, affects prices
+
+// Inventory system
+class InventoryItem {
+    constructor(itemType, quantity) {
+        this.type = itemType;
+        this.quantity = quantity;
+    }
+
+    getValue(reputation = 50) {
+        // Reputation affects trader prices
+        const repMultiplier = reputation > 50 ? 1.2 : 0.8;
+        return Math.floor(this.type.baseValue * repMultiplier);
+    }
+}
+
+// Player inventory
+let playerInventory = [
+    new InventoryItem(ITEM_TYPES.WATER, 3),
+    new InventoryItem(ITEM_TYPES.BEANS, 5),
+    new InventoryItem(ITEM_TYPES.SCRAP, 12),
+    new InventoryItem(ITEM_TYPES.BULLETS, 20),
+    new InventoryItem(ITEM_TYPES.TIRE, 2),
+    new InventoryItem(ITEM_TYPES.KNIFE, 1)
+];
+
+// Trader inventory
+let traderInventory = [
+    new InventoryItem(ITEM_TYPES.STIMPAK, 4),
+    new InventoryItem(ITEM_TYPES.ANTIBIO, 2),
+    new InventoryItem(ITEM_TYPES.BANDAGE, 8),
+    new InventoryItem(ITEM_TYPES.GASOLINE, 6),
+    new InventoryItem(ITEM_TYPES.BATTERY, 3),
+    new InventoryItem(ITEM_TYPES.ENGINE, 1),
+    new InventoryItem(ITEM_TYPES.GOGGLES, 2)
+];
+
+// Trade offer system
+let playerOffer = [];
+let traderOffer = [];
+
+// UI state
+let selectedItem = null;
+let selectedSide = null; // 'player' or 'trader'
+let hoveredItem = null;
+let hoveredSide = null;
+
+// Trader dialog
+let currentDialog = "WELCOME TO SAL'S SALVAGE. WHAT YOU GOT?";
+const dialogs = {
+    welcome: "WELCOME TO SAL'S SALVAGE. WHAT YOU GOT?",
+    goodDeal: "NOW THAT'S A FAIR TRADE. I LIKE YOUR STYLE.",
+    badDeal: "YOU TRYING TO RIP ME OFF? NO DEAL.",
+    thinking: "HMM... LET ME THINK ABOUT THAT...",
+    lowRep: "I DON'T TRUST YOU. PRICES ARE HIGHER.",
+    highRep: "YOU'RE GOOD PEOPLE. I'LL CUT YOU A DEAL.",
+    noMoney: "YOU AIN'T GOT THE CAPS FOR THAT.",
+    tradeSuccess: "PLEASURE DOING BUSINESS WITH YOU!",
+    tradeFail: "NAH, THAT AIN'T GONNA WORK FOR ME."
+};
+
+// Calculate trade balance
+function calculateTradeBalance() {
+    let playerValue = playerOffer.reduce((sum, item) => sum + item.getValue(100 - traderReputation) * item.quantity, 0);
+    let traderValue = traderOffer.reduce((sum, item) => sum + item.getValue(traderReputation) * item.quantity, 0);
+    return playerValue - traderValue;
+}
+
+// Draw inventory panel
+function drawInventoryPanel(x, y, width, height, inventory, offers, title, isPlayer) {
+    // Panel background
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x, y, width, height);
+
+    // Border
+    ctx.strokeStyle = COLORS.orange;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, width, height);
+
+    // Title
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x + 5, y - 10, title.length * 9, 18);
+    ctx.fillStyle = COLORS.yellow;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(title, x + 10, y + 4);
+
+    // Items
+    let itemY = y + 25;
+    inventory.forEach((item, index) => {
+        const itemX = x + 10;
+        const isOffered = offers.some(o => o.type === item.type);
+        const isHovered = hoveredItem === index && hoveredSide === (isPlayer ? 'player' : 'trader');
+
+        // Item background
+        if (isHovered) {
+            ctx.fillStyle = COLORS.darkBlue;
+            ctx.fillRect(itemX - 2, itemY - 12, width - 20, 16);
+        }
+
+        if (isOffered) {
+            ctx.fillStyle = COLORS.darkGreen;
+            ctx.fillRect(itemX - 2, itemY - 12, width - 20, 16);
+        }
+
+        // Icon
+        drawItemIcon(itemX, itemY - 10, item.type, 1);
+
+        // Name
+        ctx.fillStyle = isOffered ? COLORS.green : COLORS.white;
+        ctx.font = '10px monospace';
+        ctx.fillText(item.type.name, itemX + 15, itemY);
+
+        // Quantity
+        ctx.fillStyle = COLORS.lightGray;
+        ctx.fillText('x' + item.quantity, itemX + width - 60, itemY);
+
+        // Value
+        const value = item.getValue(isPlayer ? 100 - traderReputation : traderReputation);
+        ctx.fillStyle = COLORS.orange;
+        ctx.fillText(value + 'c', itemX + width - 35, itemY);
+
+        itemY += 18;
+
+        if (itemY > y + height - 10) return; // Don't overflow panel
+    });
+}
+
+// Draw offer panel
+function drawOfferPanel(x, y, width, height, offers, title) {
+    // Panel background
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x, y, width, height);
+
+    // Border
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, width, height);
+
+    // Title
+    ctx.fillStyle = COLORS.cyan;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(title, x + 10, y + 15);
+
+    // Items
+    let itemY = y + 30;
+    if (offers.length === 0) {
+        ctx.fillStyle = COLORS.gray;
+        ctx.font = '10px monospace';
+        ctx.fillText('(EMPTY)', x + 10, itemY);
+    } else {
+        offers.forEach(item => {
+            drawItemIcon(x + 10, itemY - 8, item.type, 0.8);
+            ctx.fillStyle = COLORS.white;
+            ctx.font = '9px monospace';
+            ctx.fillText(item.type.name, x + 20, itemY);
+            ctx.fillStyle = COLORS.lightGray;
+            ctx.fillText('x' + item.quantity, x + width - 30, itemY);
+            itemY += 15;
+        });
+    }
+}
+
+// Draw trade value indicator
+function drawTradeValueIndicator(x, y) {
+    const balance = calculateTradeBalance();
+    const playerTotal = playerOffer.reduce((sum, item) => sum + item.getValue(100 - traderReputation) * item.quantity, 0);
+    const traderTotal = traderOffer.reduce((sum, item) => sum + item.getValue(traderReputation) * item.quantity, 0);
+
+    // Background
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x, y, 200, 80);
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, 200, 80);
+
+    // Title
+    ctx.fillStyle = COLORS.yellow;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('DEAL VALUE', x + 55, y + 15);
+
+    // Values
+    ctx.fillStyle = COLORS.green;
+    ctx.font = '10px monospace';
+    ctx.fillText('YOU GIVE: ' + playerTotal + 'c', x + 10, y + 35);
+
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillText('YOU GET:  ' + traderTotal + 'c', x + 10, y + 50);
+
+    // Balance indicator
+    let balanceText = '';
+    let balanceColor = COLORS.white;
+    if (Math.abs(balance) < 5) {
+        balanceText = 'FAIR TRADE';
+        balanceColor = COLORS.green;
+    } else if (balance > 0) {
+        balanceText = 'YOU OVERPAY';
+        balanceColor = COLORS.red;
+    } else {
+        balanceText = 'YOU PROFIT';
+        balanceColor = COLORS.orange;
+    }
+
+    ctx.fillStyle = balanceColor;
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(balanceText, x + 50, y + 70);
+}
+
+// Draw reputation meter
+function drawReputationMeter(x, y) {
+    ctx.fillStyle = COLORS.white;
+    ctx.font = '10px monospace';
+    ctx.fillText('REPUTATION:', x, y);
+
+    // Meter background
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x, y + 5, 100, 8);
+
+    // Meter fill
+    const repColor = traderReputation > 70 ? COLORS.green :
+                     traderReputation > 30 ? COLORS.yellow : COLORS.red;
+    ctx.fillStyle = repColor;
+    ctx.fillRect(x, y + 5, traderReputation, 8);
+
+    // Border
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y + 5, 100, 8);
+}
+
+// Draw dialog box
+function drawDialogBox(x, y, width, height, text) {
+    // Background
+    ctx.fillStyle = COLORS.darkBlue;
+    ctx.fillRect(x, y, width, height);
+
+    // Border
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, width, height);
+    ctx.strokeStyle = COLORS.cyan;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 3, y + 3, width - 6, height - 6);
+
+    // Text
+    ctx.fillStyle = COLORS.white;
+    ctx.font = '11px monospace';
+    const words = text.split(' ');
+    let line = '';
+    let lineY = y + 20;
+    const maxWidth = width - 20;
+
+    words.forEach(word => {
+        const testLine = line + word + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && line !== '') {
+            ctx.fillText(line, x + 10, lineY);
+            line = word + ' ';
+            lineY += 15;
+        } else {
+            line = testLine;
+        }
+    });
+    ctx.fillText(line, x + 10, lineY);
+}
+
+// Draw button
+function drawButton(x, y, width, height, text, enabled = true) {
+    // Background
+    ctx.fillStyle = enabled ? COLORS.darkGreen : COLORS.darkGray;
+    ctx.fillRect(x, y, width, height);
+
+    // Border
+    ctx.strokeStyle = enabled ? COLORS.green : COLORS.gray;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, width, height);
+
+    // Text
+    ctx.fillStyle = enabled ? COLORS.white : COLORS.darkGray;
+    ctx.font = 'bold 12px monospace';
+    const textWidth = ctx.measureText(text).width;
+    ctx.fillText(text, x + (width - textWidth) / 2, y + height / 2 + 5);
+
+    return { x, y, width, height };
+}
+
+// Button positions
+let acceptButton = null;
+let cancelButton = null;
+
+// Main draw function
+function draw() {
+    // Clear
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Background gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 480);
+    gradient.addColorStop(0, COLORS.darkBlue);
+    gradient.addColorStop(1, COLORS.black);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 640, 480);
+
+    // Trader portrait
+    drawTraderPortrait(270, 10, "SAL");
+
+    // Player caps
+    ctx.fillStyle = COLORS.orange;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('CAPS: ' + playerCaps, 20, 30);
+
+    // Reputation meter
+    drawReputationMeter(500, 25);
+
+    // Dialog box
+    drawDialogBox(20, 110, 600, 60, currentDialog);
+
+    // Inventory panels
+    drawInventoryPanel(20, 180, 280, 230, playerInventory, playerOffer, 'YOUR INVENTORY', true);
+    drawOfferPanel(20, 415, 130, 60, playerOffer, 'YOU OFFER');
+
+    drawInventoryPanel(340, 180, 280, 230, traderInventory, traderOffer, "SAL'S STOCK", false);
+    drawOfferPanel(490, 415, 130, 60, traderOffer, 'SAL OFFERS');
+
+    // Trade value indicator
+    drawTradeValueIndicator(220, 395);
+
+    // Buttons
+    const canAccept = playerOffer.length > 0 && traderOffer.length > 0;
+    acceptButton = drawButton(160, 420, 100, 30, 'ACCEPT', canAccept);
+    cancelButton = drawButton(270, 420, 100, 30, 'CANCEL', playerOffer.length > 0 || traderOffer.length > 0);
+
+    // Instructions
+    ctx.fillStyle = COLORS.gray;
+    ctx.font = '9px monospace';
+    ctx.fillText('CLICK ITEMS TO ADD TO TRADE | R: RESET', 180, 470);
+}
+
+// Mouse handling
+let mouseX = 0;
+let mouseY = 0;
+
+canvas.addEventListener('mousemove', (e) => {
+    if (!gameStarted) return;
+
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    // Check hover over inventory items
+    let newHovered = null;
+    let newSide = null;
+
+    // Player inventory
+    playerInventory.forEach((item, index) => {
+        const itemX = 20 + 10;
+        const itemY = 180 + 25 + index * 18;
+        if (mouseX >= itemX - 2 && mouseX <= itemX + 260 && mouseY >= itemY - 12 && mouseY <= itemY + 4) {
+            newHovered = index;
+            newSide = 'player';
+        }
+    });
+
+    // Trader inventory
+    traderInventory.forEach((item, index) => {
+        const itemX = 340 + 10;
+        const itemY = 180 + 25 + index * 18;
+        if (mouseX >= itemX - 2 && mouseX <= itemX + 260 && mouseY >= itemY - 12 && mouseY <= itemY + 4) {
+            newHovered = index;
+            newSide = 'trader';
+        }
+    });
+
+    // Play hover sound if changed
+    if (newHovered !== hoveredItem || newSide !== hoveredSide) {
+        if (newHovered !== null) {
+            playHoverBeep();
+        }
+    }
+
+    hoveredItem = newHovered;
+    hoveredSide = newSide;
+});
+
+canvas.addEventListener('click', (e) => {
+    if (!gameStarted) return;
+
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    // Check player inventory clicks
+    playerInventory.forEach((item, index) => {
+        const itemX = 20 + 10;
+        const itemY = 180 + 25 + index * 18;
+        if (mouseX >= itemX - 2 && mouseX <= itemX + 260 && mouseY >= itemY - 12 && mouseY <= itemY + 4) {
+            toggleOffer(item, playerOffer, playerInventory);
+        }
+    });
+
+    // Check trader inventory clicks
+    traderInventory.forEach((item, index) => {
+        const itemX = 340 + 10;
+        const itemY = 180 + 25 + index * 18;
+        if (mouseX >= itemX - 2 && mouseX <= itemX + 260 && mouseY >= itemY - 12 && mouseY <= itemY + 4) {
+            toggleOffer(item, traderOffer, traderInventory);
+        }
+    });
+
+    // Check button clicks
+    if (acceptButton && mouseX >= acceptButton.x && mouseX <= acceptButton.x + acceptButton.width &&
+        mouseY >= acceptButton.y && mouseY <= acceptButton.y + acceptButton.height) {
+        if (playerOffer.length > 0 && traderOffer.length > 0) {
+            executeTrade();
+        }
+    }
+
+    if (cancelButton && mouseX >= cancelButton.x && mouseX <= cancelButton.x + cancelButton.width &&
+        mouseY >= cancelButton.y && mouseY <= cancelButton.y + cancelButton.height) {
+        if (playerOffer.length > 0 || traderOffer.length > 0) {
+            cancelTrade();
+        }
+    }
+});
+
+// Toggle item in offer
+function toggleOffer(item, offerArray, sourceInventory) {
+    const existingIndex = offerArray.findIndex(o => o.type === item.type);
+
+    if (existingIndex >= 0) {
+        // Remove from offer
+        offerArray.splice(existingIndex, 1);
+        playSelectBeep();
+        currentDialog = dialogs.thinking;
+    } else {
+        // Add to offer (1 item at a time)
+        if (item.quantity > 0) {
+            offerArray.push(new InventoryItem(item.type, 1));
+            playMoveBeep();
+            updateDialog();
+        }
+    }
+}
+
+// Update dialog based on trade balance
+function updateDialog() {
+    const balance = calculateTradeBalance();
+
+    if (Math.abs(balance) < 5) {
+        currentDialog = dialogs.goodDeal;
+    } else if (balance > 20) {
+        currentDialog = dialogs.badDeal;
+    } else {
+        currentDialog = dialogs.thinking;
+    }
+}
+
+// Execute trade
+function executeTrade() {
+    const balance = calculateTradeBalance();
+
+    // Check if trade is fair enough (trader won't accept if they lose too much)
+    if (balance < -15) {
+        currentDialog = dialogs.tradeFail;
+        playTradeFail();
+        return;
+    }
+
+    // Remove items from inventories
+    playerOffer.forEach(offer => {
+        const item = playerInventory.find(i => i.type === offer.type);
+        if (item) {
+            item.quantity -= offer.quantity;
+            if (item.quantity <= 0) {
+                playerInventory = playerInventory.filter(i => i.type !== offer.type);
+            }
+        }
+    });
+
+    traderOffer.forEach(offer => {
+        const item = traderInventory.find(i => i.type === offer.type);
+        if (item) {
+            item.quantity -= offer.quantity;
+            if (item.quantity <= 0) {
+                traderInventory = traderInventory.filter(i => i.type !== offer.type);
+            }
+        }
+    });
+
+    // Add items to inventories
+    traderOffer.forEach(offer => {
+        const existing = playerInventory.find(i => i.type === offer.type);
+        if (existing) {
+            existing.quantity += offer.quantity;
+        } else {
+            playerInventory.push(new InventoryItem(offer.type, offer.quantity));
+        }
+    });
+
+    playerOffer.forEach(offer => {
+        const existing = traderInventory.find(i => i.type === offer.type);
+        if (existing) {
+            existing.quantity += offer.quantity;
+        } else {
+            traderInventory.push(new InventoryItem(offer.type, offer.quantity));
+        }
+    });
+
+    // Update reputation based on fairness
+    if (Math.abs(balance) < 5) {
+        traderReputation = Math.min(100, traderReputation + 5);
+    } else if (balance > 10) {
+        traderReputation = Math.max(0, traderReputation - 3);
+    }
+
+    // Clear offers
+    playerOffer = [];
+    traderOffer = [];
+
+    // Success!
+    currentDialog = dialogs.tradeSuccess;
+    playTradeSuccess();
+
+    // Update dialog based on reputation
+    setTimeout(() => {
+        if (traderReputation > 70) {
+            currentDialog = dialogs.highRep;
+        } else if (traderReputation < 30) {
+            currentDialog = dialogs.lowRep;
+        } else {
+            currentDialog = dialogs.welcome;
+        }
+    }, 2000);
+}
+
+// Cancel trade
+function cancelTrade() {
+    playerOffer = [];
+    traderOffer = [];
+    currentDialog = dialogs.welcome;
+    playSelectBeep();
+}
+
+// Animation loop
+function gameLoop() {
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// Start game
+function startGame() {
+    if (gameStarted) return;
+
+    initAudio();
+    gameStarted = true;
+    startScreen.style.display = 'none';
+    playSelectBeep();
+    gameLoop();
+}
+
+// Event listeners
+startScreen.addEventListener('click', startGame);
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        window.location.href = 'index.html';
+        return;
+    }
+
+    if (!gameStarted) {
+        startGame();
+    }
+
+    if (e.key === 'r' || e.key === 'R') {
+        cancelTrade();
+    }
+});
+
+    </script>
+</body>
+</html>

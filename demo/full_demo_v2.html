@@ -1106,6 +1106,11 @@ function gameLoop() {
 document.addEventListener('keydown', e => {
     keys[e.key] = true;
 
+    if (e.key === 'Escape') {
+        window.location.href = 'index.html';
+        return;
+    }
+
     if (!gameStarted && e.key === ' ') {
         startScreen.style.display = 'none';
         initAudio();

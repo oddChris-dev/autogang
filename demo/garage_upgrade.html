@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - GARAGE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: monospace;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background: #1a1a1a;
+            border: 4px solid #444;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            cursor: crosshair;
+        }
+
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .crt-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+            z-index: 51;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+        <div class="scanlines"></div>
+        <div class="crt-effect"></div>
+    </div>
+
+    <script>
+// ============================================
+// AUTOGANG - GARAGE CUSTOMIZATION SCREEN
+// ============================================
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+
+// Audio Context
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+// Sound effects
+function playClunk() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 150;
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+}
+
+function playSelect() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 440;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.08);
+}
+
+function playScroll() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = 330;
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.05);
+}
+
+function playError() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = 110;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.2);
+}
+
+// Color palette
+const COLORS = {
+    black: '#000000',
+    darkGray: '#1a1a1a',
+    gray: '#444444',
+    medGray: '#666666',
+    lightGray: '#999999',
+    white: '#ffffff',
+    red: '#cc3333',
+    darkRed: '#881111',
+    orange: '#cc6633',
+    yellow: '#cccc33',
+    green: '#33cc33',
+    darkGreen: '#225522',
+    cyan: '#33cccc',
+    blue: '#3333cc',
+    darkBlue: '#111188',
+    purple: '#9933cc',
+    brown: '#774411',
+    rust: '#aa5533'
+};
+
+// Vehicle definitions
+const vehicles = [
+    {
+        name: 'SEDAN',
+        armor: 3,
+        speed: 7,
+        fuel: 5,
+        cargo: 4,
+        passengers: 4,
+        weapon: null,
+        armorMod: null,
+        engine: null,
+        special: null,
+        crew: ['LUIS', 'YOLANDA']
+    },
+    {
+        name: 'PICKUP TRUCK',
+        armor: 5,
+        speed: 6,
+        fuel: 6,
+        cargo: 7,
+        passengers: 2,
+        weapon: 'MOUNTED GUN',
+        armorMod: null,
+        engine: null,
+        special: null,
+        crew: ['CHEN']
+    },
+    {
+        name: 'SCHOOL BUS',
+        armor: 7,
+        speed: 3,
+        fuel: 4,
+        cargo: 8,
+        passengers: 12,
+        weapon: null,
+        armorMod: 'PLATING',
+        engine: null,
+        special: null,
+        crew: ['DR. OKONKWO', 'DEV', 'MARCUS', 'LEAH']
+    },
+    {
+        name: 'MOTORCYCLE',
+        armor: 1,
+        speed: 10,
+        fuel: 8,
+        cargo: 1,
+        passengers: 1,
+        weapon: null,
+        armorMod: null,
+        engine: 'TURBO',
+        special: null,
+        crew: ['DUSTIN']
+    },
+    {
+        name: 'TOW TRUCK',
+        armor: 6,
+        speed: 4,
+        fuel: 5,
+        cargo: 6,
+        passengers: 2,
+        weapon: 'HARPOON',
+        armorMod: 'SPIKES',
+        engine: 'HEAVY DUTY',
+        special: 'OIL SLICK',
+        crew: ['LUIS', 'DUSTIN']
+    }
+];
+
+// Parts inventory
+const partsInventory = [
+    { name: 'MOUNTED GUN', type: 'weapon', count: 2, cost: 250 },
+    { name: 'HARPOON', type: 'weapon', count: 1, cost: 300 },
+    { name: 'RAM', type: 'weapon', count: 3, cost: 150 },
+    { name: 'PLATING', type: 'armor', count: 4, cost: 200 },
+    { name: 'SPIKES', type: 'armor', count: 2, cost: 180 },
+    { name: 'REINFORCED', type: 'armor', count: 1, cost: 250 },
+    { name: 'TURBO', type: 'engine', count: 1, cost: 400 },
+    { name: 'FUEL EFFICIENT', type: 'engine', count: 2, cost: 300 },
+    { name: 'HEAVY DUTY', type: 'engine', count: 1, cost: 350 },
+    { name: 'SMOKE SCREEN', type: 'special', count: 2, cost: 200 },
+    { name: 'OIL SLICK', type: 'special', count: 1, cost: 180 },
+    { name: 'NITRO', type: 'special', count: 1, cost: 500 }
+];
+
+// Crew portraits
+const crewList = [
+    'LUIS', 'CHEN', 'YOLANDA', 'DUSTIN', 'DR. OKONKWO',
+    'DEV', 'MARCUS', 'LEAH', 'CONSTANCE', 'DOUGLAS'
+];
+
+// Game state
+let currentVehicleIndex = 0;
+let scrap = 1850;
+let selectedSlot = null;
+let hoveredSlot = null;
+let mouseX = 0;
+let mouseY = 0;
+let blinkCounter = 0;
+
+// Upgrade slot positions (relative to vehicle center)
+const upgradeSlots = {
+    weapon: { x: 400, y: 150, label: 'WEAPON' },
+    armor: { x: 250, y: 200, label: 'ARMOR' },
+    engine: { x: 550, y: 200, label: 'ENGINE' },
+    special: { x: 400, y: 350, label: 'SPECIAL' }
+};
+
+// Draw functions
+function drawText(text, x, y, color = COLORS.white, size = 12) {
+    ctx.fillStyle = color;
+    ctx.font = `${size}px monospace`;
+    ctx.fillText(text, x, y);
+}
+
+function drawBox(x, y, w, h, borderColor = COLORS.gray, fillColor = COLORS.black) {
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+}
+
+function drawBorder(x, y, w, h, color = COLORS.rust, thickness = 2) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = thickness;
+    ctx.strokeRect(x, y, w, h);
+    // Inner border for depth
+    ctx.strokeStyle = COLORS.gray;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+}
+
+// Pixel art vehicle drawings
+function drawSedan(x, y, scale = 3) {
+    const s = scale;
+    // Body
+    ctx.fillStyle = COLORS.blue;
+    ctx.fillRect(x - 12*s, y - 4*s, 24*s, 8*s);
+    // Roof
+    ctx.fillRect(x - 8*s, y - 8*s, 16*s, 4*s);
+    // Windows
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x - 6*s, y - 7*s, 5*s, 3*s);
+    ctx.fillRect(x + 1*s, y - 7*s, 5*s, 3*s);
+    // Wheels
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x - 9*s, y + 4*s, 6*s, 4*s);
+    ctx.fillRect(x + 3*s, y + 4*s, 6*s, 4*s);
+}
+
+function drawPickup(x, y, scale = 3) {
+    const s = scale;
+    // Cab
+    ctx.fillStyle = COLORS.red;
+    ctx.fillRect(x - 16*s, y - 6*s, 12*s, 12*s);
+    // Window
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x - 14*s, y - 4*s, 8*s, 6*s);
+    // Bed
+    ctx.fillStyle = COLORS.rust;
+    ctx.fillRect(x - 4*s, y - 4*s, 20*s, 10*s);
+    // Wheels
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x - 12*s, y + 6*s, 6*s, 4*s);
+    ctx.fillRect(x + 10*s, y + 6*s, 6*s, 4*s);
+}
+
+function drawBus(x, y, scale = 3) {
+    const s = scale;
+    // Body
+    ctx.fillStyle = COLORS.yellow;
+    ctx.fillRect(x - 20*s, y - 8*s, 40*s, 12*s);
+    ctx.fillRect(x - 18*s, y - 12*s, 36*s, 4*s);
+    // Windows
+    ctx.fillStyle = COLORS.black;
+    for (let i = 0; i < 5; i++) {
+        ctx.fillRect(x - 16*s + i*8*s, y - 11*s, 6*s, 3*s);
+    }
+    // Wheels
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x - 16*s, y + 4*s, 6*s, 4*s);
+    ctx.fillRect(x - 4*s, y + 4*s, 6*s, 4*s);
+    ctx.fillRect(x + 10*s, y + 4*s, 6*s, 4*s);
+    // Door
+    ctx.fillStyle = COLORS.rust;
+    ctx.fillRect(x - 18*s, y - 6*s, 4*s, 10*s);
+}
+
+function drawMotorcycle(x, y, scale = 3) {
+    const s = scale;
+    // Body/Frame
+    ctx.fillStyle = COLORS.gray;
+    ctx.fillRect(x - 8*s, y - 2*s, 16*s, 4*s);
+    // Seat
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x - 4*s, y - 4*s, 8*s, 2*s);
+    // Handlebars
+    ctx.fillStyle = COLORS.medGray;
+    ctx.fillRect(x + 6*s, y - 6*s, 2*s, 6*s);
+    // Wheels
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x - 10*s, y + 2*s, 6*s, 6*s);
+    ctx.fillRect(x + 8*s, y + 2*s, 6*s, 6*s);
+    // Engine
+    ctx.fillStyle = COLORS.rust;
+    ctx.fillRect(x - 2*s, y, 4*s, 4*s);
+}
+
+function drawTowTruck(x, y, scale = 3) {
+    const s = scale;
+    // Cab
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x - 16*s, y - 6*s, 12*s, 12*s);
+    // Window
+    ctx.fillStyle = COLORS.cyan;
+    ctx.fillRect(x - 14*s, y - 4*s, 8*s, 6*s);
+    // Bed
+    ctx.fillStyle = COLORS.rust;
+    ctx.fillRect(x - 4*s, y - 2*s, 20*s, 8*s);
+    // Crane
+    ctx.fillStyle = COLORS.yellow;
+    ctx.fillRect(x - 2*s, y - 10*s, 2*s, 8*s);
+    ctx.fillRect(x - 2*s, y - 10*s, 10*s, 2*s);
+    // Hook
+    ctx.fillRect(x + 6*s, y - 8*s, 2*s, 4*s);
+    // Wheels
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(x - 12*s, y + 6*s, 6*s, 4*s);
+    ctx.fillRect(x + 10*s, y + 6*s, 6*s, 4*s);
+}
+
+function drawCurrentVehicle(x, y) {
+    const vehicle = vehicles[currentVehicleIndex];
+    switch (vehicle.name) {
+        case 'SEDAN':
+            drawSedan(x, y);
+            break;
+        case 'PICKUP TRUCK':
+            drawPickup(x, y);
+            break;
+        case 'SCHOOL BUS':
+            drawBus(x, y);
+            break;
+        case 'MOTORCYCLE':
+            drawMotorcycle(x, y);
+            break;
+        case 'TOW TRUCK':
+            drawTowTruck(x, y);
+            break;
+    }
+}
+
+// Draw crew portrait (simple)
+function drawCrewPortrait(x, y, name) {
+    const colors = {
+        'LUIS': COLORS.red,
+        'CHEN': COLORS.blue,
+        'YOLANDA': COLORS.purple,
+        'DUSTIN': COLORS.gray,
+        'DR. OKONKWO': COLORS.white,
+        'DEV': COLORS.green,
+        'MARCUS': COLORS.brown,
+        'LEAH': COLORS.orange,
+        'CONSTANCE': COLORS.darkBlue,
+        'DOUGLAS': COLORS.darkGreen
+    };
+
+    const color = colors[name] || COLORS.medGray;
+
+    // Frame
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(x, y, 40, 50);
+    ctx.strokeStyle = COLORS.rust;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, 40, 50);
+
+    // Head
+    ctx.fillStyle = COLORS.orange;
+    ctx.fillRect(x + 14, y + 8, 12, 12);
+
+    // Body
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 10, y + 20, 20, 20);
+
+    // Name
+    ctx.fillStyle = COLORS.white;
+    ctx.font = '8px monospace';
+    const shortName = name.substring(0, 6);
+    ctx.fillText(shortName, x + 4, y + 46);
+}
+
+// Draw upgrade slot
+function drawUpgradeSlot(slotName, slotData) {
+    const vehicle = vehicles[currentVehicleIndex];
+    const x = slotData.x - 60;
+    const y = slotData.y - 30;
+    const w = 120;
+    const h = 60;
+
+    const isHovered = hoveredSlot === slotName;
+    const isSelected = selectedSlot === slotName;
+
+    // Background
+    ctx.fillStyle = isSelected ? COLORS.darkGreen : (isHovered ? COLORS.gray : COLORS.darkGray);
+    ctx.fillRect(x, y, w, h);
+
+    // Border
+    const borderColor = isSelected ? COLORS.green : (isHovered ? COLORS.rust : COLORS.medGray);
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+
+    // Label
+    drawText(slotData.label, x + 5, y + 15, COLORS.yellow, 10);
+
+    // Current mod
+    const currentMod = vehicle[slotName === 'armor' ? 'armorMod' : slotName];
+    if (currentMod) {
+        drawText(currentMod, x + 5, y + 35, COLORS.white, 9);
+    } else {
+        drawText('[EMPTY]', x + 5, y + 35, COLORS.darkRed, 9);
+    }
+
+    // Stat change indicator
+    if (currentMod) {
+        drawText('+', x + 5, y + 50, COLORS.green, 10);
+    }
+}
+
+// Draw stats panel
+function drawStatsPanel() {
+    const vehicle = vehicles[currentVehicleIndex];
+    const x = 20;
+    const y = 80;
+
+    drawBox(x, y, 200, 240, COLORS.rust, COLORS.darkGray);
+
+    drawText('[ VEHICLE STATS ]', x + 10, y + 20, COLORS.yellow, 11);
+
+    const stats = [
+        { name: 'ARMOR', value: vehicle.armor, max: 10 },
+        { name: 'SPEED', value: vehicle.speed, max: 10 },
+        { name: 'FUEL CAP', value: vehicle.fuel, max: 10 },
+        { name: 'CARGO', value: vehicle.cargo, max: 10 },
+        { name: 'SEATS', value: vehicle.passengers, max: 12 }
+    ];
+
+    stats.forEach((stat, i) => {
+        const sy = y + 50 + i * 35;
+
+        // Stat name
+        drawText(stat.name, x + 10, sy, COLORS.white, 10);
+
+        // Stat value
+        drawText(stat.value.toString(), x + 100, sy, COLORS.cyan, 10);
+
+        // Bar
+        const barWidth = 150;
+        const barHeight = 8;
+        const fillWidth = (stat.value / stat.max) * barWidth;
+
+        ctx.fillStyle = COLORS.black;
+        ctx.fillRect(x + 10, sy + 5, barWidth, barHeight);
+
+        ctx.fillStyle = stat.value > 7 ? COLORS.green : (stat.value > 4 ? COLORS.yellow : COLORS.red);
+        ctx.fillRect(x + 10, sy + 5, fillWidth, barHeight);
+
+        ctx.strokeStyle = COLORS.medGray;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 10, sy + 5, barWidth, barHeight);
+    });
+}
+
+// Draw parts inventory
+function drawPartsInventory() {
+    const x = 580;
+    const y = 80;
+    const w = 200;
+
+    drawBox(x, y, w, 470, COLORS.rust, COLORS.darkGray);
+
+    drawText('[ PARTS INV ]', x + 10, y + 20, COLORS.yellow, 11);
+
+    const visibleParts = partsInventory.slice(0, 12);
+
+    visibleParts.forEach((part, i) => {
+        const py = y + 45 + i * 35;
+
+        const color = part.count > 0 ? COLORS.white : COLORS.darkRed;
+
+        drawText(part.name, x + 10, py, color, 8);
+        drawText(`x${part.count}`, x + 10, py + 12, COLORS.cyan, 8);
+        drawText(`${part.cost}`, x + 130, py + 12, COLORS.orange, 8);
+    });
+}
+
+// Draw crew panel
+function drawCrewPanel() {
+    const vehicle = vehicles[currentVehicleIndex];
+    const x = 250;
+    const y = 400;
+
+    drawBox(x, y, 300, 150, COLORS.rust, COLORS.darkGray);
+
+    drawText('[ CREW ASSIGNED ]', x + 10, y + 20, COLORS.yellow, 11);
+
+    if (vehicle.crew && vehicle.crew.length > 0) {
+        vehicle.crew.forEach((crewName, i) => {
+            const cx = x + 20 + (i * 50);
+            const cy = y + 35;
+            drawCrewPortrait(cx, cy, crewName);
+        });
+    } else {
+        drawText('NO CREW', x + 100, y + 80, COLORS.darkRed, 10);
+    }
+
+    // Available slots
+    const available = vehicle.passengers - (vehicle.crew ? vehicle.crew.length : 0);
+    drawText(`SLOTS: ${available}/${vehicle.passengers}`, x + 10, y + 135, COLORS.cyan, 10);
+}
+
+// Draw header
+function drawHeader() {
+    const vehicle = vehicles[currentVehicleIndex];
+
+    drawBox(20, 20, 760, 50, COLORS.rust, COLORS.darkGray);
+
+    // Title
+    drawText('AUTOGANG', 30, 45, COLORS.red, 20);
+    drawText('GARAGE', 180, 45, COLORS.orange, 20);
+
+    // Scrap
+    drawText(`SCRAP: ${scrap}`, 450, 45, COLORS.yellow, 16);
+
+    // Vehicle indicator
+    drawText(`< ${vehicle.name} >`, 600, 45, COLORS.cyan, 14);
+}
+
+// Draw vehicle display area
+function drawVehicleArea() {
+    drawBox(240, 80, 330, 290, COLORS.rust, COLORS.black);
+
+    // Draw vehicle in center
+    drawCurrentVehicle(400, 220);
+
+    // Draw upgrade slots
+    Object.keys(upgradeSlots).forEach(slotName => {
+        drawUpgradeSlot(slotName, upgradeSlots[slotName]);
+    });
+
+    // Draw connection lines
+    ctx.strokeStyle = COLORS.gray;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    Object.values(upgradeSlots).forEach(slot => {
+        ctx.beginPath();
+        ctx.moveTo(400, 220);
+        ctx.lineTo(slot.x, slot.y);
+        ctx.stroke();
+    });
+
+    ctx.setLineDash([]);
+}
+
+// Draw footer/help
+function drawFooter() {
+    const y = 565;
+
+    drawText('ARROWS: Switch Vehicle', 30, y, COLORS.medGray, 10);
+    drawText('CLICK: Select Slot', 250, y, COLORS.medGray, 10);
+    drawText('ESC: Deselect', 450, y, COLORS.medGray, 10);
+    drawText('R: Reset Demo', 620, y, COLORS.medGray, 10);
+}
+
+// Main render
+function render() {
+    // Clear
+    ctx.fillStyle = COLORS.darkGray;
+    ctx.fillRect(0, 0, 800, 600);
+
+    // Draw UI elements
+    drawHeader();
+    drawStatsPanel();
+    drawVehicleArea();
+    drawPartsInventory();
+    drawCrewPanel();
+    drawFooter();
+
+    // Blink effect for selected slot
+    blinkCounter++;
+    if (selectedSlot && Math.floor(blinkCounter / 20) % 2 === 0) {
+        const slot = upgradeSlots[selectedSlot];
+        ctx.strokeStyle = COLORS.green;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(slot.x - 62, slot.y - 32, 124, 64);
+    }
+
+    requestAnimationFrame(render);
+}
+
+// Check if mouse is over a slot
+function checkSlotHover(x, y) {
+    for (const [slotName, slotData] of Object.entries(upgradeSlots)) {
+        const sx = slotData.x - 60;
+        const sy = slotData.y - 30;
+        const w = 120;
+        const h = 60;
+
+        if (x >= sx && x <= sx + w && y >= sy && y <= sy + h) {
+            return slotName;
+        }
+    }
+    return null;
+}
+
+// Event handlers
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    const newHover = checkSlotHover(mouseX, mouseY);
+    if (newHover !== hoveredSlot) {
+        hoveredSlot = newHover;
+        if (hoveredSlot) {
+            playScroll();
+        }
+    }
+});
+
+canvas.addEventListener('click', (e) => {
+    initAudio();
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const clickedSlot = checkSlotHover(x, y);
+
+    if (clickedSlot) {
+        if (selectedSlot === clickedSlot) {
+            selectedSlot = null;
+            playSelect();
+        } else {
+            selectedSlot = clickedSlot;
+            playClunk();
+        }
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    initAudio();
+
+    if (e.key === 'ArrowLeft') {
+        currentVehicleIndex = (currentVehicleIndex - 1 + vehicles.length) % vehicles.length;
+        selectedSlot = null;
+        playScroll();
+    } else if (e.key === 'ArrowRight') {
+        currentVehicleIndex = (currentVehicleIndex + 1) % vehicles.length;
+        selectedSlot = null;
+        playScroll();
+    } else if (e.key === 'Escape') {
+        if (selectedSlot) {
+            selectedSlot = null;
+            playSelect();
+        } else {
+            window.location.href = 'index.html';
+        }
+    } else if (e.key === 'r' || e.key === 'R') {
+        currentVehicleIndex = 0;
+        selectedSlot = null;
+        scrap = 1850;
+        playClunk();
+    }
+});
+
+// Start
+render();
+    </script>
+</body>
+</html>

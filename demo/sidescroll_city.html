@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUTOGANG - City Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            border: 4px solid #444;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 10;
+        }
+
+        #startScreen h1 {
+            font-size: 48px;
+            color: #ff4444;
+            text-shadow: 4px 4px 0 #000;
+            margin-bottom: 20px;
+            letter-spacing: 4px;
+        }
+
+        #startScreen p {
+            font-size: 18px;
+            margin: 10px 0;
+            color: #ccc;
+        }
+
+        #startBtn {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-size: 24px;
+            background: #ff4444;
+            color: #fff;
+            border: 4px solid #fff;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        #startBtn:hover {
+            background: #fff;
+            color: #ff4444;
+            transform: scale(1.1);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="startScreen">
+            <h1>AUTOGANG</h1>
+            <p>POST-APOCALYPTIC CITY EXPLORER</p>
+            <p style="margin-top: 20px;">← → Arrow Keys to Move</p>
+            <p>E to Interact with NPCs</p>
+            <button id="startBtn">START GAME</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game state
+        const game = {
+            started: false,
+            camera: { x: 0, y: 0 },
+            worldWidth: 3200,
+            keys: {},
+            showInteractPrompt: false,
+            nearbyNPC: null
+        };
+
+        // Player
+        const player = {
+            x: 100,
+            y: 380,
+            width: 16,
+            height: 24,
+            speed: 2,
+            health: 85,
+            supplies: 47,
+            direction: 1, // 1 = right, -1 = left
+            walking: false,
+            animFrame: 0,
+            animTimer: 0
+        };
+
+        // NPCs
+        const npcs = [
+            { x: 400, y: 390, type: 'survivor', name: 'JAKE', dialogue: 'Gas station down\nthe road might have\nsupplies...', width: 16, height: 24 },
+            { x: 800, y: 390, type: 'trader', name: 'RITA', dialogue: 'I trade scrap for\nfood. You got any?', width: 16, height: 24 },
+            { x: 1400, y: 390, type: 'guard', name: 'CRUZ', dialogue: 'Keep moving,\nstranger. This\narea ain\'t safe.', width: 16, height: 24 },
+            { x: 2100, y: 390, type: 'survivor', name: 'SAM', dialogue: 'The clinic is\nabandoned but there\nmight be meds left.', width: 16, height: 24 },
+            { x: 2800, y: 390, type: 'mechanic', name: 'ACE', dialogue: 'Need parts? I got\nparts. Whatcha need?', width: 16, height: 24 }
+        ];
+
+        // Abandoned cars
+        const cars = [
+            { x: 250, y: 395, type: 'sedan', color: '#8b4513' },
+            { x: 650, y: 395, type: 'van', color: '#4a4a4a' },
+            { x: 1100, y: 395, type: 'truck', color: '#6b8e23' },
+            { x: 1650, y: 395, type: 'sedan', color: '#2f4f4f' },
+            { x: 2300, y: 395, type: 'van', color: '#8b0000' },
+            { x: 2950, y: 395, type: 'truck', color: '#556b2f' }
+        ];
+
+        // Buildings
+        const buildings = [
+            { x: 150, y: 200, width: 140, height: 250, type: 'gas', sign: 'GAS' },
+            { x: 320, y: 180, width: 160, height: 270, type: 'shop', sign: 'SHOP' },
+            { x: 510, y: 220, width: 120, height: 230, type: 'residential', sign: '' },
+            { x: 660, y: 190, width: 180, height: 260, type: 'warehouse', sign: 'PARTS' },
+            { x: 870, y: 210, width: 140, height: 240, type: 'residential', sign: '' },
+            { x: 1040, y: 170, width: 200, height: 280, type: 'clinic', sign: 'CLINIC' },
+            { x: 1270, y: 200, width: 150, height: 250, type: 'shop', sign: 'FOOD' },
+            { x: 1450, y: 190, width: 140, height: 260, type: 'residential', sign: '' },
+            { x: 1620, y: 180, width: 170, height: 270, type: 'garage', sign: 'GARAGE' },
+            { x: 1820, y: 220, width: 130, height: 230, type: 'residential', sign: '' },
+            { x: 1980, y: 190, width: 190, height: 260, type: 'warehouse', sign: 'DEPOT' },
+            { x: 2200, y: 200, width: 160, height: 250, type: 'shop', sign: 'GUNS' },
+            { x: 2390, y: 180, width: 140, height: 270, type: 'residential', sign: '' },
+            { x: 2560, y: 210, width: 150, height: 240, type: 'bar', sign: 'BAR' },
+            { x: 2740, y: 190, width: 180, height: 260, type: 'shop', sign: 'TRADE' },
+            { x: 2950, y: 200, width: 140, height: 250, type: 'residential', sign: '' }
+        ];
+
+        // Industrial backdrop elements
+        const backdrop = {
+            smokestacks: [
+                { x: 300, y: 80, height: 120 },
+                { x: 800, y: 60, height: 140 },
+                { x: 1400, y: 70, height: 130 },
+                { x: 2000, y: 65, height: 135 },
+                { x: 2600, y: 75, height: 125 }
+            ],
+            waterTowers: [
+                { x: 550, y: 100 },
+                { x: 1150, y: 90 },
+                { x: 1850, y: 95 },
+                { x: 2450, y: 100 }
+            ]
+        };
+
+        // Colors - 8-bit palette
+        const colors = {
+            sky: '#4a90a4',
+            skyDark: '#2a5a6a',
+            ground: '#6b6b6b',
+            groundDark: '#4a4a4a',
+            brick: '#8b4513',
+            brickDark: '#5d2e0d',
+            window: '#87ceeb',
+            windowBroken: '#4a4a4a',
+            sign: '#ffff00',
+            signText: '#000',
+            smoke: '#808080',
+            metal: '#708090',
+            rust: '#b7410e',
+            playerSuit: '#ff6b35',
+            playerSkin: '#d4a574',
+            npcClothes: ['#4a7c59', '#8b4789', '#b85042', '#6b5b93', '#808000'],
+            carBody: '#8b0000',
+            carWindow: '#4682b4',
+            health: '#ff4444',
+            healthBg: '#4a4a4a',
+            supplies: '#44ff44',
+            hud: '#1a1a1a',
+            hudText: '#fff'
+        };
+
+        // Audio context for chiptune music
+        let audioCtx = null;
+        let musicPlaying = false;
+
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        function playNote(frequency, duration, startTime, type = 'square') {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, startTime);
+
+            gainNode.gain.setValueAtTime(0.1, startTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start(startTime);
+            oscillator.stop(startTime + duration);
+        }
+
+        function playBackgroundMusic() {
+            if (!audioCtx || musicPlaying) return;
+            musicPlaying = true;
+
+            // Post-apocalyptic ambient chiptune melody
+            const melody = [
+                { note: 220, duration: 0.3 },  // A3
+                { note: 196, duration: 0.3 },  // G3
+                { note: 165, duration: 0.6 },  // E3
+                { note: 220, duration: 0.3 },  // A3
+                { note: 247, duration: 0.3 },  // B3
+                { note: 220, duration: 0.6 },  // A3
+                { note: 196, duration: 0.3 },  // G3
+                { note: 165, duration: 0.9 }   // E3
+            ];
+
+            const bass = [
+                { note: 110, duration: 1.2 },  // A2
+                { note: 82.4, duration: 1.2 }, // E2
+                { note: 98, duration: 1.2 },   // G2
+                { note: 82.4, duration: 1.2 }  // E2
+            ];
+
+            function playLoop() {
+                if (!musicPlaying) return;
+
+                const startTime = audioCtx.currentTime;
+                let currentTime = startTime;
+
+                // Play melody
+                for (let i = 0; i < melody.length; i++) {
+                    playNote(melody[i].note, melody[i].duration, currentTime, 'square');
+                    currentTime += melody[i].duration;
+                }
+
+                // Play bass
+                currentTime = startTime;
+                for (let i = 0; i < bass.length; i++) {
+                    playNote(bass[i].note, bass[i].duration, currentTime, 'triangle');
+                    currentTime += bass[i].duration;
+                }
+
+                setTimeout(playLoop, 4800);
+            }
+
+            playLoop();
+        }
+
+        // Drawing functions
+        function drawPixel(x, y, size, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(Math.floor(x), Math.floor(y), size, size);
+        }
+
+        function drawRect(x, y, w, h, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+        }
+
+        function drawBrickTexture(x, y, w, h) {
+            const brickW = 12;
+            const brickH = 6;
+
+            for (let by = 0; by < h; by += brickH) {
+                for (let bx = 0; bx < w; bx += brickW) {
+                    const offset = (Math.floor(by / brickH) % 2) * (brickW / 2);
+                    const brickColor = (bx + by) % 2 === 0 ? colors.brick : colors.brickDark;
+                    drawRect(x + bx + offset, y + by, brickW - 1, brickH - 1, brickColor);
+                }
+            }
+        }
+
+        function drawWindows(x, y, w, h, broken = false) {
+            const windowsPerRow = Math.floor(w / 25);
+            const rows = Math.floor(h / 40);
+
+            for (let row = 1; row <= rows; row++) {
+                for (let col = 0; col < windowsPerRow; col++) {
+                    const wx = x + 10 + col * 25;
+                    const wy = y + 20 + (row - 1) * 40;
+
+                    if (broken && Math.random() > 0.6) {
+                        drawRect(wx, wy, 14, 18, colors.windowBroken);
+                    } else {
+                        drawRect(wx, wy, 14, 18, colors.window);
+                        drawRect(wx, wy, 14, 1, colors.windowBroken);
+                        drawRect(wx + 7, wy, 1, 18, colors.windowBroken);
+                    }
+                }
+            }
+        }
+
+        function drawSign(x, y, text) {
+            const w = text.length * 8 + 8;
+            const h = 16;
+
+            drawRect(x, y, w, h, colors.sign);
+            drawRect(x + 1, y + 1, w - 2, h - 2, colors.signText);
+
+            ctx.fillStyle = colors.sign;
+            ctx.font = 'bold 10px monospace';
+            ctx.fillText(text, x + 4, y + 11);
+        }
+
+        function drawSmokestack(x, y, height) {
+            const offset = game.camera.x * 0.3;
+            const screenX = x - offset;
+
+            // Stack
+            drawRect(screenX, y, 20, height, colors.metal);
+            drawRect(screenX + 2, y, 2, height, colors.rust);
+
+            // Top
+            drawRect(screenX - 3, y - 8, 26, 8, colors.metal);
+
+            // Smoke
+            const time = Date.now() / 1000;
+            for (let i = 0; i < 3; i++) {
+                const smokeY = y - 15 - i * 15 - (time % 2) * 10;
+                const smokeX = screenX + 10 + Math.sin(time + i) * 5;
+                const size = 8 + i * 4;
+                ctx.globalAlpha = 0.4 - i * 0.1;
+                drawRect(smokeX - size/2, smokeY, size, size, colors.smoke);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function drawWaterTower(x, y) {
+            const offset = game.camera.x * 0.3;
+            const screenX = x - offset;
+
+            // Legs
+            drawRect(screenX, y + 50, 4, 50, colors.metal);
+            drawRect(screenX + 36, y + 50, 4, 50, colors.metal);
+            drawRect(screenX + 10, y + 70, 4, 30, colors.metal);
+            drawRect(screenX + 26, y + 70, 4, 30, colors.metal);
+
+            // Tank
+            drawRect(screenX + 5, y, 30, 50, colors.metal);
+            drawRect(screenX + 7, y + 5, 2, 40, colors.rust);
+            drawRect(screenX + 5, y + 20, 30, 2, colors.rust);
+        }
+
+        function drawBuilding(building) {
+            const x = building.x - game.camera.x;
+            const y = building.y;
+
+            // Main structure
+            drawBrickTexture(x, y, building.width, building.height);
+
+            // Windows
+            drawWindows(x, y, building.width, building.height, true);
+
+            // Roof
+            drawRect(x - 5, y - 10, building.width + 10, 10, colors.groundDark);
+
+            // Door
+            const doorX = x + building.width / 2 - 10;
+            const doorY = y + building.height - 30;
+            drawRect(doorX, doorY, 20, 30, colors.brickDark);
+
+            // Sign
+            if (building.sign) {
+                drawSign(x + building.width / 2 - building.sign.length * 4, y + 15, building.sign);
+            }
+
+            // Damage
+            if (Math.random() > 0.5) {
+                ctx.globalAlpha = 0.3;
+                drawRect(x + Math.random() * building.width * 0.7, y + Math.random() * building.height * 0.7, 10, 10, colors.groundDark);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function drawCar(car) {
+            const x = car.x - game.camera.x;
+            const y = car.y;
+
+            if (car.type === 'sedan') {
+                // Body
+                drawRect(x, y, 40, 16, car.color);
+                drawRect(x + 8, y - 8, 24, 8, car.color);
+                // Windows
+                drawRect(x + 10, y - 7, 10, 6, colors.carWindow);
+                drawRect(x + 22, y - 7, 10, 6, colors.carWindow);
+                // Wheels
+                drawRect(x + 4, y + 14, 6, 4, colors.groundDark);
+                drawRect(x + 30, y + 14, 6, 4, colors.groundDark);
+            } else if (car.type === 'van') {
+                // Body
+                drawRect(x, y - 4, 48, 20, car.color);
+                drawRect(x + 4, y - 12, 16, 8, car.color);
+                // Windows
+                drawRect(x + 6, y - 11, 6, 6, colors.carWindow);
+                drawRect(x + 13, y - 11, 6, 6, colors.carWindow);
+                // Wheels
+                drawRect(x + 6, y + 14, 6, 4, colors.groundDark);
+                drawRect(x + 36, y + 14, 6, 4, colors.groundDark);
+            } else if (car.type === 'truck') {
+                // Bed
+                drawRect(x, y, 30, 18, car.color);
+                // Cab
+                drawRect(x + 30, y - 4, 18, 22, car.color);
+                // Window
+                drawRect(x + 32, y - 2, 14, 10, colors.carWindow);
+                // Wheels
+                drawRect(x + 4, y + 16, 6, 4, colors.groundDark);
+                drawRect(x + 20, y + 16, 6, 4, colors.groundDark);
+                drawRect(x + 38, y + 16, 6, 4, colors.groundDark);
+            }
+        }
+
+        function drawPlayer() {
+            const x = player.x - game.camera.x;
+            const y = player.y;
+            const frame = Math.floor(player.animFrame);
+
+            // Head
+            drawRect(x + 4, y, 8, 8, colors.playerSkin);
+
+            // Body
+            drawRect(x + 3, y + 8, 10, 10, colors.playerSuit);
+
+            // Arms
+            const armOffset = player.walking ? (frame % 2 === 0 ? 1 : -1) : 0;
+            drawRect(x + 1, y + 10, 3, 6, colors.playerSuit);
+            drawRect(x + 12, y + 10, 3, 6, colors.playerSuit);
+
+            // Legs
+            const legOffset = player.walking ? (frame % 2 === 0 ? 2 : -2) : 0;
+            drawRect(x + 4 + legOffset, y + 18, 3, 6, colors.playerSuit);
+            drawRect(x + 9 - legOffset, y + 18, 3, 6, colors.playerSuit);
+
+            // Face direction indicator
+            drawRect(x + (player.direction > 0 ? 9 : 4), y + 3, 2, 2, colors.groundDark);
+        }
+
+        function drawNPC(npc) {
+            const x = npc.x - game.camera.x;
+            const y = npc.y;
+            const colorIndex = npcs.indexOf(npc) % colors.npcClothes.length;
+            const npcColor = colors.npcClothes[colorIndex];
+
+            // Head
+            drawRect(x + 4, y, 8, 8, colors.playerSkin);
+
+            // Body
+            drawRect(x + 3, y + 8, 10, 10, npcColor);
+
+            // Arms
+            drawRect(x + 1, y + 10, 3, 6, npcColor);
+            drawRect(x + 12, y + 10, 3, 6, npcColor);
+
+            // Legs
+            drawRect(x + 4, y + 18, 3, 6, npcColor);
+            drawRect(x + 9, y + 18, 3, 6, npcColor);
+
+            // Name above head
+            ctx.fillStyle = colors.hudText;
+            ctx.font = 'bold 8px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(npc.name, x + 8, y - 5);
+            ctx.textAlign = 'left';
+        }
+
+        function drawInteractPrompt(npc) {
+            const x = npc.x - game.camera.x;
+            const y = npc.y - 40;
+
+            // Prompt box
+            drawRect(x - 30, y - 20, 76, 16, colors.hud);
+            drawRect(x - 28, y - 18, 72, 12, colors.hudText);
+
+            // Text
+            ctx.fillStyle = colors.hud;
+            ctx.font = 'bold 8px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('PRESS E TO TALK', x + 8, y - 10);
+            ctx.textAlign = 'left';
+        }
+
+        function drawDialogue(npc) {
+            const boxW = 300;
+            const boxH = 100;
+            const boxX = canvas.width / 2 - boxW / 2;
+            const boxY = canvas.height - 150;
+
+            // Dialogue box
+            drawRect(boxX, boxY, boxW, boxH, colors.hud);
+            drawRect(boxX + 4, boxY + 4, boxW - 8, boxH - 8, colors.hudText);
+            drawRect(boxX + 6, boxY + 6, boxW - 12, boxH - 12, colors.hud);
+
+            // Name
+            ctx.fillStyle = colors.supplies;
+            ctx.font = 'bold 12px monospace';
+            ctx.fillText(npc.name + ':', boxX + 15, boxY + 25);
+
+            // Dialogue text
+            ctx.fillStyle = colors.hudText;
+            ctx.font = '10px monospace';
+            const lines = npc.dialogue.split('\n');
+            lines.forEach((line, i) => {
+                ctx.fillText(line, boxX + 15, boxY + 45 + i * 15);
+            });
+
+            // Close hint
+            ctx.fillStyle = colors.playerSuit;
+            ctx.font = 'bold 8px monospace';
+            ctx.fillText('PRESS E TO CLOSE', boxX + boxW - 120, boxY + boxH - 10);
+        }
+
+        function drawHUD() {
+            const hudY = canvas.height - 50;
+
+            // HUD background
+            drawRect(0, hudY, canvas.width, 50, colors.hud);
+            drawRect(0, hudY, canvas.width, 2, colors.playerSuit);
+
+            // Health
+            ctx.fillStyle = colors.hudText;
+            ctx.font = 'bold 10px monospace';
+            ctx.fillText('HEALTH:', 20, hudY + 20);
+
+            drawRect(20, hudY + 25, 150, 12, colors.healthBg);
+            const healthWidth = (player.health / 100) * 146;
+            drawRect(22, hudY + 27, healthWidth, 8, colors.health);
+
+            ctx.fillText(player.health + '%', 180, hudY + 35);
+
+            // Supplies
+            ctx.fillText('SUPPLIES:', 250, hudY + 20);
+            drawRect(250, hudY + 25, 80, 12, colors.healthBg);
+
+            ctx.fillStyle = colors.supplies;
+            ctx.font = 'bold 14px monospace';
+            ctx.fillText(player.supplies, 270, hudY + 35);
+
+            // Location
+            const location = getLocationName();
+            ctx.fillStyle = colors.hudText;
+            ctx.font = 'bold 12px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(location, canvas.width - 20, hudY + 30);
+            ctx.textAlign = 'left';
+        }
+
+        function getLocationName() {
+            const playerWorldX = player.x + game.camera.x;
+
+            if (playerWorldX < 500) return 'WEST RUINS';
+            if (playerWorldX < 1200) return 'OLD DOWNTOWN';
+            if (playerWorldX < 2000) return 'INDUSTRIAL ZONE';
+            if (playerWorldX < 2700) return 'SCAVENGER ALLEY';
+            return 'EAST END';
+        }
+
+        function drawBackground() {
+            // Sky gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 450);
+            gradient.addColorStop(0, colors.sky);
+            gradient.addColorStop(1, colors.skyDark);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, 450);
+
+            // Industrial backdrop
+            backdrop.smokestacks.forEach(stack => {
+                drawSmokestack(stack.x, stack.y, stack.height);
+            });
+
+            backdrop.waterTowers.forEach(tower => {
+                drawWaterTower(tower.x, tower.y);
+            });
+        }
+
+        function drawGround() {
+            // Street
+            drawRect(0, 450, canvas.width, 100, colors.ground);
+
+            // Cracks and texture
+            for (let i = 0; i < canvas.width; i += 40) {
+                const x = i - (game.camera.x % 40);
+                drawRect(x, 450, 2, 100, colors.groundDark);
+            }
+
+            // Road lines (faded)
+            ctx.globalAlpha = 0.3;
+            for (let i = 0; i < game.worldWidth; i += 60) {
+                const x = i - game.camera.x;
+                if (x > -50 && x < canvas.width) {
+                    drawRect(x, 495, 30, 4, colors.hudText);
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function checkNPCInteraction() {
+            game.nearbyNPC = null;
+
+            for (const npc of npcs) {
+                const dist = Math.abs((player.x + game.camera.x) - npc.x);
+                if (dist < 50) {
+                    game.nearbyNPC = npc;
+                    game.showInteractPrompt = true;
+                    return;
+                }
+            }
+
+            game.showInteractPrompt = false;
+        }
+
+        function update() {
+            if (!game.started) return;
+
+            // Player movement
+            player.walking = false;
+
+            if (game.keys['ArrowLeft']) {
+                player.x -= player.speed;
+                player.direction = -1;
+                player.walking = true;
+
+                if (player.x < 50) player.x = 50;
+            }
+
+            if (game.keys['ArrowRight']) {
+                player.x += player.speed;
+                player.direction = 1;
+                player.walking = true;
+
+                const maxX = game.worldWidth - 50;
+                if (player.x + game.camera.x > maxX) {
+                    player.x = maxX - game.camera.x;
+                }
+            }
+
+            // Walking animation
+            if (player.walking) {
+                player.animTimer += 0.15;
+                player.animFrame = player.animTimer;
+            } else {
+                player.animTimer = 0;
+                player.animFrame = 0;
+            }
+
+            // Camera follow
+            const targetCameraX = player.x - 200;
+            game.camera.x += (targetCameraX - game.camera.x) * 0.1;
+
+            if (game.camera.x < 0) game.camera.x = 0;
+            const maxCameraX = game.worldWidth - canvas.width;
+            if (game.camera.x > maxCameraX) game.camera.x = maxCameraX;
+
+            // Check NPC interactions
+            checkNPCInteraction();
+        }
+
+        function render() {
+            // Clear
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Background (parallax)
+            drawBackground();
+
+            // Ground
+            drawGround();
+
+            // Buildings
+            buildings.forEach(building => {
+                if (building.x - game.camera.x > -200 && building.x - game.camera.x < canvas.width) {
+                    drawBuilding(building);
+                }
+            });
+
+            // Cars
+            cars.forEach(car => {
+                if (car.x - game.camera.x > -100 && car.x - game.camera.x < canvas.width) {
+                    drawCar(car);
+                }
+            });
+
+            // NPCs
+            npcs.forEach(npc => {
+                if (npc.x - game.camera.x > -100 && npc.x - game.camera.x < canvas.width) {
+                    drawNPC(npc);
+                }
+            });
+
+            // Player
+            drawPlayer();
+
+            // Interaction prompt
+            if (game.showInteractPrompt && game.nearbyNPC && !game.showingDialogue) {
+                drawInteractPrompt(game.nearbyNPC);
+            }
+
+            // Dialogue
+            if (game.showingDialogue && game.currentNPC) {
+                drawDialogue(game.currentNPC);
+            }
+
+            // HUD
+            drawHUD();
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Input handling
+        window.addEventListener('keydown', (e) => {
+            game.keys[e.key] = true;
+
+            if (e.key === 'Escape') {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            if (e.key === 'e' || e.key === 'E') {
+                if (game.showInteractPrompt && game.nearbyNPC && !game.showingDialogue) {
+                    game.showingDialogue = true;
+                    game.currentNPC = game.nearbyNPC;
+                } else if (game.showingDialogue) {
+                    game.showingDialogue = false;
+                    game.currentNPC = null;
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            game.keys[e.key] = false;
+        });
+
+        // Start button
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').classList.add('hidden');
+            game.started = true;
+            initAudio();
+            playBackgroundMusic();
+            gameLoop();
+        });
+
+        // Initialize
+        ctx.imageSmoothingEnabled = false;
+    </script>
+</body>
+</html>

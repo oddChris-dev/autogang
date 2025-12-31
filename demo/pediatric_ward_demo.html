@@ -1629,6 +1629,10 @@ function startGame() {
 }
 
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        window.location.href = 'index.html';
+        return;
+    }
     if (!gameStarted) {
         startGame();
     }
