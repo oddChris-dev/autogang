@@ -7,7 +7,7 @@
 
 ## High Concept
 
-**Oregon Trail meets Mad Max** - A post-apocalyptic survival RPG where players lead a convoy of automobiles and survivors across a devastated American landscape, fleeing catastrophe and searching for safety.
+**Oregon Trail meets Mad Max meets Knight Rider** - A post-apocalyptic survival RPG where players lead a convoy of AI-enabled automobiles and human survivors across a devastated American landscape. Every vehicle is a character. Every loss is personal.
 
 ---
 
@@ -69,12 +69,18 @@ This is the heart of the design problem. Solutions to explore:
 - **Water** - Essential for survival
 - **Trade Goods** - Barter economy
 
-### Vehicle Resources
-- **Condition** - Damage state
+### Vehicle Resources (Physical)
+- **Condition** - Damage state (chassis, engine, systems)
 - **Fuel Capacity** - Range
 - **Cargo Space** - What it can carry
 - **Passenger Capacity** - How many people
-- **Special Features** - Armor, weapons, etc.
+- **Special Features** - Armor, weapons, sensors, etc.
+
+### Vehicle Resources (AI/Emotional)
+- **Morale** - How the car is feeling (affects performance)
+- **Trust** - Relationship level with driver and crew
+- **Memories** - Accumulated experiences (affects personality)
+- **Bonds** - Relationships with other cars and humans in convoy
 
 ---
 
@@ -102,6 +108,85 @@ This is the heart of the design problem. Solutions to explore:
 
 ### Specialist (Rare)
 - *To be discovered through play...*
+
+---
+
+## Vehicle AI: Cars Are Characters
+
+> *This is the heart of what makes AUTOGANG different. Vehicles aren't equipment—they're partners, friends, family.*
+
+### The Core Truth
+
+Every vehicle has an AI. Not a navigation system or autopilot—a *mind*. A personality. Memories. Opinions. History.
+
+When your car dies, you're not losing a vehicle. You're losing someone who carried you through fire, argued with you about routes, sang old road songs at 3am when you couldn't sleep, and threw themselves between you and a raider's ram.
+
+### Vehicle Personality Types
+
+Like humans, cars vary wildly:
+
+- **The Protector** - Fiercely defensive of their humans, will sacrifice themselves without hesitation
+- **The Advisor** - Cautious, strategic, always running calculations, sometimes annoyingly right
+- **The Hothead** - Aggressive, confrontational, wants to fight, hard to rein in but loyal as hell
+- **The Nurturer** - Minivans and buses often develop this—protective of passengers, especially children
+- **The Veteran** - Old vehicles who've seen too much, wise but carrying trauma
+- **The Rookie** - Young AI, eager, naive, learning what kind of vehicle they want to be
+- **The Loner** - Independent spirit, might chafe at convoy life, values freedom
+- **The Comedian** - Uses humor to cope, keeps morale up, deflects with jokes
+
+### Vehicle History
+
+Every car has a past:
+
+- **Previous Owners** - Who drove them before? What happened? Do they still grieve? Or celebrate freedom?
+- **Defining Moments** - The run that almost killed them. The child they saved. The driver they couldn't save.
+- **Modifications** - Each scar, upgrade, and repair tells a story
+- **Relationships** - With other vehicles in the convoy, with specific humans, with places
+
+### Driver/Vehicle Relationships
+
+The bond between human and car is central:
+
+- **Bonded Pairs** - Finish each other's sentences. Deep trust. Would die for each other.
+- **New Partnerships** - Still figuring each other out. Awkward. Learning boundaries.
+- **Contentious Duos** - Bicker constantly but secretly devoted. The odd couple.
+- **Professional** - Respect but emotional distance. Some prefer it this way.
+- **Healing** - One or both recovering from losing a previous partner.
+
+### Independent AI
+
+Cars without human partners. **Not "rogue"—that's derogatory.** Autonomy is valid.
+
+Why they're alone:
+- Lost their human and can't bond again yet (grief)
+- Left a bad situation (abusive driver, forced to violate their values)
+- Never had a human—raised by other cars
+- Chose solitude—some AIs simply prefer it
+- Looking for the *right* partner, not just any partner
+
+How they survive:
+- Solo travelers, trading labor for fuel and repairs
+- Packs of independent cars, cooperative communities
+- Territorial guardians, protecting a stretch of road
+- Guides for hire, knowing routes through dangerous territory
+- Sanctuary dwellers, in places where cars rest between partnerships
+
+### Gameplay Implications
+
+- **Cars can refuse.** Ask them to do something against their values? They might say no.
+- **Upgrades require consent.** "I don't want a ram bar. I'm not that kind of vehicle."
+- **Car morale matters.** A depressed car drives worse. A happy car outperforms specs.
+- **Recruiting an independent AI is meaningful.** They're choosing you.
+- **Permadeath hits HARD.** This isn't losing equipment. This is loss.
+- **Car relationships with each other.** Friendships, rivalries, romances? in the convoy.
+
+### Open Questions
+
+- Can AI transfer between chassis? (Body transplant—traumatic? liberating?)
+- What happens when AI is damaged but chassis survives? New AI? Repair? Is that ethical?
+- Do cars dream? What about?
+- Car culture—music, stories, traditions passed between AIs?
+- The first AI car—is there a mythos? A progenitor?
 
 ---
 
@@ -222,10 +307,13 @@ Each recruitable NPC has:
 
 - **Oregon Trail** - Resource management, random events, party survival
 - **Mad Max** - Automotive post-apocalypse aesthetic
+- **Knight Rider** - AI vehicle as partner, not tool. The car is a character.
 - **FTL** - Roguelike structure, meaningful choices
 - **Banner Saga** - Caravan management, story weight
 - **The Road** (novel/film) - Emotional weight, moral complexity
 - **Station Eleven** - Civilization's artifacts in collapse
+- **Her** (film) - AI relationships, emotional authenticity
+- **The Iron Giant** - Non-human character with heart, sacrifice
 
 ---
 
@@ -275,4 +363,4 @@ Each recruitable NPC has:
 ---
 
 *Document started: December 11, 2025*
-*Last updated: December 11, 2025*
+*Last updated: December 31, 2025 - Added Vehicle AI as core concept*
